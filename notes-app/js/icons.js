@@ -1,0 +1,32 @@
+const s = (d, w = 20, sw = 2, extra = '') => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" ${extra}>${d}</svg>`;
+export const I = {
+  gear: (w = 19) => s('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>', w, 1.8),
+  flame: () => '<svg width="16" height="16" viewBox="0 0 24 24" fill="#F97316" stroke="#F97316" stroke-width="1.5" stroke-linejoin="round"><path d="M12 2.5c.8 3.4 5 5.2 5 10.2a5 5 0 0 1-10 0c0-2.2 1-3.6 2.2-4.6.1 1.7.9 2.8 2.1 3.1-.6-3.2-.3-6 .7-8.7z"/></svg>',
+  plus: (w = 20, sw = 2.4) => s('<path d="M12 5v14"/><path d="M5 12h14"/>', w, sw),
+  back: (w = 22) => s('<path d="M15 6l-6 6 6 6"/>', w, 2.4),
+  chev: (w = 20) => s('<path d="M9 6l6 6-6 6"/>', w, 2.2),
+  down: (w = 20) => s('<path d="M6 9l6 6 6-6"/>', w, 2.4),
+  arrow: (w = 18) => s('<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>', w, 2.4),
+  check: (w = 14, sw = 3.5) => s('<path d="M5 12.5l4.5 4.5L19 7.5"/>', w, sw),
+  close: (w = 16) => s('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', w, 2.6),
+  pen: (w = 20) => s('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>', w),
+  hi: (w = 20) => s('<path d="M9 14l-4 4v2h6l2-2"/><path d="M9 14l7-9 4 4-9 7z"/>', w),
+  eraser: (w = 20) => s('<path d="M7 20h10"/><path d="M4.5 15.5l9-9a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L12 18H7z"/>', w),
+  lasso: (w = 20) => s('<ellipse cx="12" cy="10" rx="8" ry="6" stroke-dasharray="3 3"/><path d="M8 15c-1 2-1 4 1 5"/>', w),
+  undo: (w = 20) => s('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>', w),
+  redo: (w = 20) => s('<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>', w),
+  spark: (w = 18) => s('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>', w),
+  book: (w = 18) => s('<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/>', w),
+  file: (w = 18) => s('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>', w),
+  more: (w = 20) => s('<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>', w, 2.4),
+  trash: (w = 18) => s('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>', w),
+  move: (w = 18) => s('<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>', w),
+  external: (w = 14) => s('<path d="M7 17L17 7"/><path d="M8 7h9v9"/>', w, 2.6),
+  note: (w = 24) => s('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>', w, 2.4),
+  edit: (w = 18) => s('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>', w),
+  copy: (w = 16) => s('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>', w),
+  minus: (w = 18) => s('<path d="M5 12h14"/>', w, 2.4),
+  logo: (w = 18) => s('<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M9 9h6"/><path d="M9 13h4"/>', w, 2.2),
+  mistake: (w = 18) => s('<circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5v.5"/>', w, 2.2)
+};
+export const esc = (t) => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
