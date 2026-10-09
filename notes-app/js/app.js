@@ -5,6 +5,7 @@ import { openEditor, closeEditor, editorOpen } from './editor.js';
 import { importPdfFile } from './pdfimport.js';
 import { exportBackup, importBackup } from './backup.js';
 import { warmEngine, engineState, onEngineState } from './engine.js';
+import { enablePageDrag } from './pagegrid.js';
 
 const view = $('#view');
 let settings;
@@ -22,7 +23,18 @@ async function boot() {
   window.addEventListener('resize', () => moveIndicator($('#tabs')));
   route();
   persist();
-  if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    // when an update takes over, reload once so the new version shows now instead of on the next launch
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', async () => {
+      if (!hadController || reloaded) return;
+      reloaded = true;
+      if (editorOpen()) await closeEditor(); // saves ink first
+      location.reload();
+    });
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
   // load the math engine in the background so the first Solve is instant
   setTimeout(() => warmEngine(), 1200);
 }
@@ -232,12 +244,19 @@ async function renderClass(id, tab) {
         <div class="row grow"><h2 class="h2 ellip">${esc(nb.name)}</h2><span class="chip">${pagesBy[i].length} page${pagesBy[i].length === 1 ? '' : 's'}</span></div>
         <button class="icon soft press" data-nbmore="${nb.id}" aria-label="Notebook options">${I.more()}</button>
       </div>
-      <div class="pages-grid">
+      <div class="pages-grid" data-nb="${nb.id}">
         ${pagesBy[i].map((p, j) => `<button class="pg lift" data-page="${nb.id}/${p.id}"><div class="thumb ${p.h < p.w ? 'wide' : ''}">${p.thumb ? `<img src="${p.thumb}" alt="" loading="lazy">` : (p.paper !== 'pdf' ? paperSwatch(p.paper) : '')}<span class="num">${j + 1}</span></div></button>`).join('')}
         <button class="pg add press" data-newpage="${nb.id}"><div class="thumb"><span style="display:flex;flex-direction:column;align-items:center;gap:6px;font-size:14px;font-weight:700">${I.plus(26)}New page</span></div></button>
       </div>
     </div>`).join('') + `<div class="rise d5" style="margin-top:16px"><button class="btn card press" id="newNb">${I.plus(18)} New notebook</button></div>`;
-  body.querySelectorAll('[data-page]').forEach(b => b.onclick = () => go('#/nb/' + b.dataset.page));
+  body.querySelectorAll('.pages-grid').forEach(grid => enablePageDrag(grid, {
+    onOpen: (key) => go('#/nb/' + key),
+    onMenu: (key, tile) => pageMenu(key, tile, () => renderClass(id, tab)),
+    onReorder: async (keys) => {
+      await S.reorderPages(grid.dataset.nb, keys.map(k => k.split('/')[1]));
+      grid.querySelectorAll('.pg[data-page] .num').forEach((n, j) => { n.textContent = j + 1; });
+    }
+  }));
   body.querySelectorAll('[data-newpage]').forEach(b => b.onclick = () => newPageSheet(b.dataset.newpage, null));
   $('#newNb').onclick = async () => {
     const n = await askText({ title: 'New notebook', label: 'Name', placeholder: 'Unit 3, Homework, Quiz review...', ok: 'Create' });
@@ -252,6 +271,46 @@ async function renderClass(id, tab) {
       { label: 'Rename', icon: I.edit(), run: async () => { const n = await askText({ title: 'Rename notebook', value: nb.name }); if (n) { await S.updateNotebook(nb.id, { name: n }); renderClass(id, tab); } } },
       { label: 'Delete notebook', icon: I.trash(), danger: true, run: async () => { if (await confirmSheet({ title: `Delete ${nb.name}?`, body: 'All its pages and writing will be deleted.' })) { await S.deleteNotebook(nb.id); renderClass(id, tab); } } }
     ]);
+  });
+}
+
+// Page menu in the notebook grid (long-press a page and let go).
+function pageMenu(key, anchor, refresh) {
+  const [nbId, pageId] = key.split('/');
+  menu(anchor, [
+    { label: 'Open', icon: I.file(), run: () => go('#/nb/' + key) },
+    { label: 'Move to notebook', icon: I.move(18), run: async () => {
+      const to = await pickNotebook(nbId); if (!to) return;
+      await S.movePageToNotebook(pageId, to.id); toast('Moved to ' + to.name); refresh();
+    } },
+    'hr',
+    { label: 'Delete page', icon: I.trash(), danger: true, run: async () => {
+      if (!(await confirmSheet({ title: 'Delete this page?', body: 'The page and its writing are deleted.' }))) return;
+      await S.deletePage(pageId);
+      if (!(await S.listPages(nbId)).length) await S.createPage(nbId, { paper: settings.defaultPaper || 'graph' });
+      toast('Page deleted'); refresh();
+    } }
+  ]);
+}
+
+// Pick a notebook (any class) to move a page into. Resolves with the notebook or null.
+export async function pickNotebook(excludeId) {
+  const classes = await S.listClasses();
+  const groups = (await Promise.all(classes.map(async c => ({ c, nbs: (await S.listNotebooks(c.id)).filter(n => n.id !== excludeId) })))).filter(g => g.nbs.length);
+  return new Promise((resolve) => {
+    let picked = null;
+    const close = sheet(`<h3>Move to notebook</h3>
+      ${groups.length ? groups.map(g => `<div class="field"><label>${esc(g.c.name)}</label>
+        ${g.nbs.map(n => `<button class="btn press pick-nb" data-nb="${n.id}">${I.book(18)} <span class="ellip">${esc(n.name)}</span></button>`).join('')}</div>`).join('')
+        : '<p class="sub" style="margin:0">There is no other notebook yet. Make one in a class first.</p>'}
+      <button class="btn big press" data-x>Cancel</button>`, (el, done) => {
+      el.querySelectorAll('[data-nb]').forEach(b => b.onclick = () => { picked = groups.flatMap(g => g.nbs).find(n => n.id === b.dataset.nb); done(); });
+      el.querySelector('[data-x]').onclick = () => done();
+    });
+    // resolve when the sheet goes away, however it was closed
+    const bd = Array.from(document.querySelectorAll('.backdrop')).pop();
+    const mo = new MutationObserver(() => { if (!bd.isConnected) { mo.disconnect(); resolve(picked); } });
+    mo.observe(document.body, { childList: true });
   });
 }
 

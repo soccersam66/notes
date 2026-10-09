@@ -76,6 +76,31 @@ export async function updatePage(id, patch) { const p = await getPage(id); if (!
 export async function deletePage(id) {
   await db.del('pages', id); await db.del('ink', id); await db.del('renders', id);
 }
+// New page order for a notebook: ids top to bottom. Renumbers 1..n in one transaction.
+export async function reorderPages(notebookId, ids) {
+  const pages = await listPages(notebookId);
+  const byId = new Map(pages.map(p => [p.id, p]));
+  const rows = ids.map(id => byId.get(id)).filter(Boolean);
+  pages.forEach(p => { if (!ids.includes(p.id)) rows.push(p); }); // never drop a page we were not told about
+  rows.forEach((p, i) => { p.order = i + 1; });
+  await db.putMany('pages', rows);
+  return rows;
+}
+// Move a page to the end of another notebook. A notebook is never left with zero pages.
+export async function movePageToNotebook(pageId, toNotebookId) {
+  const p = await getPage(pageId); if (!p || p.notebookId === toNotebookId) return p;
+  const from = p.notebookId;
+  const target = await listPages(toNotebookId);
+  p.notebookId = toNotebookId;
+  p.order = target.length ? target[target.length - 1].order + 1 : 1;
+  p.updated = now();
+  await db.put('pages', p);
+  if (!(await listPages(from)).length) await createPage(from, { paper: (await getSettings()).defaultPaper || 'graph' });
+  const last = await lastPage();
+  if (last && last.pageId === pageId) await setLastPage({ pageId, notebookId: toNotebookId });
+  await updateNotebook(toNotebookId, {});
+  return p;
+}
 export async function getInk(pageId) { return (await db.get('ink', pageId)) || { pageId, strokes: [] }; }
 export async function saveInk(pageId, strokes) { await db.put('ink', { pageId, strokes }); }
 

@@ -14,8 +14,9 @@ Sam's personal class-notes web app for his iPad. Hosted on GitHub Pages from `ma
 - Free tiers only (spending freeze). No paid services.
 
 ## Layout (all inside `notes-app/`)
-- `notes-app/index.html`, `notes-app/manifest.webmanifest`, `notes-app/sw.js` (offline cache; bump `VERSION` whenever any cached file changes, and add new files to `CORE`; `CORE` paths are relative to `notes-app/`).
+- `notes-app/index.html`, `notes-app/manifest.webmanifest`, `notes-app/sw.js` (offline cache; bump `VERSION` whenever any cached file changes, and add new files to `CORE`; `CORE` paths are relative to `notes-app/`). `js/app.js` reloads the app once when a new service worker takes over, so an update shows on the first launch after a deploy.
 - `js/app.js`: router (`#/today`, `#/classes`, `#/class/<id>/<tab>`, `#/nb/<notebookId>/<pageId>`), Today, Classes, Settings, new-page sheet.
+- `js/pagegrid.js`: notebook page grid on the class screen: long-press a page to drag it (ghost + hole, auto-scroll at screen edges), long-press and let go for the page menu (Open, Move to notebook, Delete). Store helpers: `S.reorderPages`, `S.movePageToNotebook` (never leaves a notebook empty).
 - `js/editor.js`: page editor, Pencil ink (pointer events, `pointerType === 'pen'` draws, fingers scroll unless Settings > Draw with finger), perfect-freehand strokes, lasso, box Solve (tap Solve, drag a box with Pencil or finger; `enterBoxMode`/`finishBox`), undo/redo, zoom, thumbnails, `solveCtx()` (image + PDF text of a lasso or box for Solve).
 - `js/solve.js`: Solve panel (`ctx.onClose` runs when it closes; the editor uses it to remove the Solve box). Order: PDF text layer (no AI, and for a box it wins even if there is ink on top) -> Gemini read of the image (only for handwriting/images) -> Giac engine solves and checks -> answer line formatted for DeltaMath (comma separated, e.g. `5, -1`).
 - `js/mathengine.js`: problem normalisation, task detection, Giac commands, answer formatting, interval notation, steps. Pure, testable in Node.
