@@ -6,6 +6,7 @@ import { getStroke } from '../vendor/pf/perfect-freehand.js';
 import { renderPdfPageBlob, importPdfFile } from './pdfimport.js';
 import { openSolve, closeSolve } from './solve.js';
 import { newPageSheet, pickNotebook } from './app.js';
+import { exportPage, exportNotebook } from './export.js';
 
 const ED = $('#editor');
 let st = null; // editor state
@@ -153,6 +154,9 @@ function moreMenu(anchor) {
   if (p && p.paper !== 'pdf') {
     items.push({ label: 'Change paper of this page', icon: I.file(), run: () => changePaper(p) });
   }
+  items.push(
+    { label: 'Export this page as PDF', icon: I.file(), run: async () => { toast('Making PDF...', 60000); await flushAll(); exportPage(p.id, `${st.nb.name} p${st.pages.indexOf(p) + 1}`); } },
+    { label: 'Export notebook as PDF', icon: I.file(), run: async () => { toast('Making PDF...', 60000); await flushAll(); exportNotebook(st.nb.id); } });
   if (p) items.push({ label: 'Move page to notebook', icon: I.move(18), run: async () => {
     const to = await pickNotebook(st.nb.id); if (!to || !st) return;
     await flushAll();
@@ -308,10 +312,11 @@ function strokePath(s, scale) {
   path.closePath();
   return path;
 }
-function paintStroke(ctx, s, scale) {
+export function paintStroke(ctx, s, scale) {
+  const dark = !s.forceLight && !!(st && st.dark);
   ctx.save();
-  if (s.t === 'hi') { ctx.globalAlpha = st.dark ? 0.4 : 0.32; }
-  ctx.fillStyle = resolveColor(s.c, s.forceLight ? false : st && st.dark);
+  if (s.t === 'hi') { ctx.globalAlpha = dark ? 0.4 : 0.32; }
+  ctx.fillStyle = resolveColor(s.c, dark);
   ctx.fill(strokePath(s, scale));
   ctx.restore();
 }
@@ -684,9 +689,11 @@ async function makeThumb(id) {
   await S.updatePage(id, { thumb });
   if (st) { const pp = st.pages.find(x => x.id === id); if (pp) pp.thumb = thumb; }
 }
-export function drawPaper(ctx, p, scale, ox = 0, oy = 0, W, H) {
+const LIGHT_PAPER = { '--rule': '#D9E2F2', '--grid': '#E3E8F0', '--bar': '#C9C9CF' };
+// light: use the light-theme colours (for images on white: Solve reads, PDF export), whatever the app theme is
+export function drawPaper(ctx, p, scale, ox = 0, oy = 0, W, H, light = false) {
   const sp = PAPER_SPACING[p.paper]; if (!sp) return;
-  const cs = getComputedStyle(document.documentElement);
+  const cs = light ? { getPropertyValue: (k) => LIGHT_PAPER[k] } : getComputedStyle(document.documentElement);
   W = W || p.w * scale; H = H || p.h * scale;
   ctx.save();
   if (p.paper === 'lined') { ctx.strokeStyle = cs.getPropertyValue('--rule'); ctx.lineWidth = 1; for (let y = 96; y < p.h; y += sp) { const yy = y * scale - oy; if (yy < 0 || yy > H) continue; ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W, yy); ctx.stroke(); } }
@@ -709,7 +716,7 @@ function solveCtx(sel) {
       const c = document.createElement('canvas'); c.width = Math.round(w * scale); c.height = Math.round(hh * scale);
       const ctx = c.getContext('2d');
       ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
-      if (page.paper !== 'pdf') drawPaper(ctx, page, scale, x * scale, y * scale, c.width, c.height);
+      if (page.paper !== 'pdf') drawPaper(ctx, page, scale, x * scale, y * scale, c.width, c.height, true);
       else {
         const r = await db.get('renders', page.id);
         if (r) { const bmp = await createImageBitmap(r.blob); const k = bmp.width / page.w; ctx.drawImage(bmp, x * k, y * k, w * k, hh * k, 0, 0, c.width, c.height); bmp.close && bmp.close(); }
