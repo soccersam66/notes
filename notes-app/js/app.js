@@ -353,11 +353,13 @@ async function openSettings() {
     <div class="setrow"><div><div style="font-weight:600">Math engine</div><div class="sub" style="font-size:13px" id="engState">${engineLabel()}</div></div></div>
     <div class="setrow"><div><div style="font-weight:600">Backup</div><div class="sub" style="font-size:13px">Saves everything to one file. Keep a copy in Google Drive.</div></div>
       <div class="row"><button class="btn sm press" id="bImport">Restore</button><button class="btn sm acc press" id="bExport">Back up</button></div></div>
-    <div class="sub" style="font-size:12px">${est ? `Using ${(est.usage / 1048576).toFixed(1)} MB on this iPad. ` : ''}Math engine: Giac (GeoGebra build, GPL-3). PDF reading: pdf.js. Ink smoothing: perfect-freehand.</div>
+    <div class="sub" style="font-size:12px"><span id="appVer"></span>${est ? `Using ${(est.usage / 1048576).toFixed(1)} MB on this iPad. ` : ''}Math engine: Giac (GeoGebra build, GPL-3). PDF reading: pdf.js. Ink smoothing: perfect-freehand.</div>
     <button class="btn big acc press" id="sDone">Done</button>
     <input type="file" id="bFile" accept=".json,application/json" class="hide">
     <input type="file" id="kFile" accept=".txt,text/plain" class="hide">`, (el, close) => {
     moveIndicator(el.querySelector('#sTheme'));
+    // which version is running (the offline cache name), to check an update arrived
+    if (window.caches) caches.keys().then(ks => { const v = ks.find(k => /^notes-v/.test(k)); const s = el.querySelector('#appVer'); if (v && s) s.textContent = 'Version ' + v.slice(7) + '. '; }).catch(() => {});
     el.querySelectorAll('[data-acc]').forEach(b => b.onclick = async () => { settings = await S.saveSettings({ accent: b.dataset.acc }); applyTheme(settings); el.querySelectorAll('[data-acc]').forEach(x => x.classList.toggle('on', x === b)); });
     el.querySelectorAll('[data-theme]').forEach(b => b.onclick = async () => { settings = await S.saveSettings({ theme: b.dataset.theme }); applyTheme(settings); el.querySelectorAll('[data-theme]').forEach(x => x.classList.toggle('on', x === b)); moveIndicator(el.querySelector('#sTheme')); });
     el.querySelector('#sFinger').onclick = async (e) => { const t = e.currentTarget; settings = await S.saveSettings({ fingerDraw: !settings.fingerDraw }); t.classList.toggle('on', settings.fingerDraw); };

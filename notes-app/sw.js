@@ -1,5 +1,5 @@
 // Offline support: the whole app (including the 7.5 MB math engine) is cached after the first visit.
-const VERSION = 'notes-v1.2.0';
+const VERSION = 'notes-v1.2.1';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/ui.js', 'js/icons.js', 'js/db.js', 'js/store.js', 'js/editor.js', 'js/pdfimport.js',
@@ -9,8 +9,9 @@ const CORE = [
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'
 ];
 
+// cache: 'reload' skips the browser's HTTP cache so an update never stores stale copies of files
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim()));
