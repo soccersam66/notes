@@ -1,7 +1,8 @@
 import * as S from './store.js';
 import { db, persist, usage } from './db.js';
 import { $, $$, h, toast, sheet, askText, confirmSheet, menu, applyTheme, moveIndicator, I, esc } from './ui.js';
-import { openEditor, closeEditor, editorOpen } from './editor.js';
+import { openEditor, closeEditor, editorOpen, itemsToText } from './editor.js';
+import { search, words, highlight } from './search.js';
 import { importFiles, hasBg } from './pdfimport.js';
 import { exportBackup, importBackup } from './backup.js';
 import { warmEngine, engineState, onEngineState } from './engine.js';
@@ -168,10 +169,49 @@ async function renderClasses() {
   view.innerHTML = `
     <div class="hello rise"><div><span class="sub" style="font-size:15px;font-weight:500">${classes.length} class${classes.length === 1 ? '' : 'es'}</span><h1 class="title">Classes</h1></div>
       <button class="btn acc press" id="addClass">${I.plus(18)} Add class</button></div>
-    <div class="classes-grid">${classes.map((c, i) => `<div class="rise d${Math.min(5, i + 1)}">${classCard(c, `<span class="sub" style="font-size:14px">${counts[i]} notebook${counts[i] === 1 ? '' : 's'}</span>`)}</div>`).join('')}
+    <label class="searchbar rise d1">${I.search()}<input id="q" type="search" placeholder="Search notebooks and PDF text" autocomplete="off" autocapitalize="off" spellcheck="false" data-noautofocus="1"><button class="icon soft press hide" id="qClear" aria-label="Clear search">${I.close(14)}</button></label>
+    <div id="results" class="hide"></div>
+    <div class="classes-grid" id="classesGrid">${classes.map((c, i) => `<div class="rise d${Math.min(5, i + 1)}">${classCard(c, `<span class="sub" style="font-size:14px">${counts[i]} notebook${counts[i] === 1 ? '' : 's'}</span>`)}</div>`).join('')}
       <button class="dashed lift rise d5" id="addClass2"><span class="icon soft">${I.plus()}</span><span style="font-size:15px;font-weight:600">Add a class</span></button></div>`;
   $('#addClass').onclick = addClassSheet; $('#addClass2').onclick = addClassSheet;
   view.querySelectorAll('[data-class]').forEach(b => b.onclick = () => go('#/class/' + b.dataset.class));
+  setupSearch();
+}
+
+// ---------- Search (Classes screen) ----------
+// The index is built the first time you type, from notebook names and imported PDF text.
+async function buildSearchIndex() {
+  const idx = { notebooks: [], pages: [] };
+  for (const c of await S.listClasses()) {
+    for (const nb of await S.listNotebooks(c.id)) {
+      idx.notebooks.push({ id: nb.id, name: nb.name, cls: c.name, short: c.short });
+      (await S.listPages(nb.id)).forEach((p, i) => {
+        if (p.text && p.text.length) idx.pages.push({ nbId: nb.id, pageId: p.id, nb: nb.name, cls: c.name, n: i + 1, thumb: p.thumb, text: itemsToText(p.text) });
+      });
+    }
+  }
+  return idx;
+}
+function setupSearch() {
+  const q = $('#q'), out = $('#results'), grid = $('#classesGrid'), clear = $('#qClear');
+  let idx = null, deb = 0;
+  const show = async () => {
+    const text = q.value;
+    clear.classList.toggle('hide', !text);
+    if (!text.trim()) { out.classList.add('hide'); grid.classList.remove('hide'); return; }
+    if (!idx) idx = await buildSearchIndex();
+    if (q.value !== text) return; // typed more while the index was loading
+    const r = search(idx, text), ws = words(text);
+    grid.classList.add('hide'); out.classList.remove('hide');
+    out.innerHTML = (!r.notebooks.length && !r.pages.length)
+      ? `<p class="sub" style="padding:18px 4px;margin:0">Nothing found for "${esc(text)}". Search looks at notebook names and the printed text of imported PDFs (not handwriting).</p>`
+      : (r.notebooks.length ? `<div class="eyebrow sr-h">Notebooks</div>` + r.notebooks.map(n => `<button class="sr press" data-go="#/nb/${n.id}"><span class="mono">${esc(n.short || '')}</span><span class="sr-t"><b>${highlight(n.name, ws)}</b><span class="sub">${esc(n.cls)}</span></span></button>`).join('') : '')
+      + (r.pages.length ? `<div class="eyebrow sr-h">Pages</div>` + r.pages.map(p => `<button class="sr press" data-go="#/nb/${p.nbId}/${p.pageId}"><span class="sr-thumb">${p.thumb ? `<img src="${p.thumb}" alt="">` : ''}</span><span class="sr-t"><b>${esc(p.nb)}, page ${p.n}</b><span class="sub">${esc(p.cls)}</span><span class="sr-snip">${highlight(p.snippet, ws)}</span></span></button>`).join('') : '');
+    out.querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
+  };
+  q.addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(show, 160); });
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(deb); show(); q.blur(); } });
+  clear.onclick = (e) => { e.preventDefault(); q.value = ''; show(); };
 }
 
 function addClassSheet() {
