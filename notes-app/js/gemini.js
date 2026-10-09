@@ -55,9 +55,12 @@ export async function askGemini(parts, { stagger = 3000, total = 25000 } = {}) {
 const READ_PROMPT = `You read ONE math problem from a student's worksheet (printed text and/or handwriting).
 Return JSON only, with these keys:
 "problem": the problem as a short readable line,
-"task": one of solve, factor, simplify, expand, evaluate, vertex, divide, domain, inverse, zeros, word,
+"task": one of solve, factor, simplify, expand, evaluate, vertex, divide, domain, inverse, zeros, identity, convert, triangle, word,
 "expr": the math in plain calculator syntax: ^ for powers, * for multiply, sqrt(), abs(), log() is base 10, ln(), logb(x,b) for other bases, pi. For a system, separate the equations with a comma. For divide use (p)/(q).
 "var": the variable to solve for (usually x),
+Trig: write inverse trig as asin(), acos(), atan() (also for arcsin and sin^-1); keep the degree sign on angles in degrees, like sin(30°).
+For a triangle (Law of Sines or Cosines) use task triangle and write expr like "a=7, b=9, C=40": sides a, b, c and angles A, B, C in degrees, where side a is across from angle A (side AB is c, BC is a, AC is b).
+For "verify/prove the identity" use task identity with both sides, like "tan(x)*cos(x)=sin(x)". For changing degrees to radians or back use task convert, like "150° to radians".
 "giac": ONLY when task is word: one Giac/Xcas command that computes the final answer (for example solve(-16*t^2+32*t+6=0,t) or fMax(-16*t^2+32*t+6,t)); otherwise "".
 "work": if the student already wrote some work, a short summary of it; otherwise "".
 Copy every number and sign exactly. Do not solve the problem yourself.`;

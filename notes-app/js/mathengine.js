@@ -1,14 +1,20 @@
 // Turns a problem ("x^2 - 4x - 5 = 0", "factor 6x^2+x-2", ...) into exact,
 // checked answers using the Giac engine. No AI in here.
 // ev(cmd) must return a Promise<string> with Giac's output.
+import { looksLikeTriangle, parseTriangle, solveTriangle, triangleAnswer } from './triangle.js';
 
-const FUNCS = ['asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh', 'sin', 'cos', 'tan', 'sec', 'csc', 'cot',
+const FUNCS = ['asin', 'acos', 'atan', 'asec', 'acsc', 'acot', 'trigsimplify', 'sinh', 'cosh', 'tanh', 'sin', 'cos', 'tan', 'sec', 'csc', 'cot',
   'sqrt', 'ln', 'log10', 'logb', 'log', 'abs', 'exp', 'f', 'g', 'h', 'floor', 'ceil', 'nthroot'];
 
 export const TASKS = {
   solve: 'Solve', factor: 'Factor', simplify: 'Simplify', expand: 'Expand', evaluate: 'Evaluate',
-  vertex: 'Vertex', divide: 'Divide', domain: 'Domain', inverse: 'Inverse', zeros: 'Zeros', command: 'Compute'
+  vertex: 'Vertex', divide: 'Divide', domain: 'Domain', inverse: 'Inverse', zeros: 'Zeros', command: 'Compute',
+  triangle: 'Triangle', convert: 'Convert', identity: 'Identity'
 };
+
+// Angles written in degrees: 30°, 30 degrees, 30 deg
+export const hasDegrees = (s) => /\d\s*(\u00b0|degrees?\b|deg\b)/i.test(String(s || ''));
+const INV = /\ba(sin|cos|tan|sec|csc|cot)\(/;
 
 // ---------- 1. Normalise what we read into Giac syntax ----------
 export function normalize(raw) {
@@ -28,6 +34,12 @@ export function normalize(raw) {
   // |x - 3| -> abs(x - 3)
   let open = true;
   s = s.replace(/\|/g, () => { const r = open ? 'abs(' : ')'; open = !open; return r; });
+  // inverse trig: arcsin, sin^-1, sin^(-1), sin⁻¹ -> asin (Giac's names)
+  s = s.replace(/\barc\s*(sin|cos|tan|sec|csc|cot)\b/gi, (m, f) => 'a' + f.toLowerCase());
+  s = s.replace(/(?<![a-z])(sin|cos|tan|sec|csc|cot)\s*\^\s*\(?\s*-\s*1\s*\)?/gi, (m, f) => 'a' + f.toLowerCase());
+  s = s.replace(/(?<![a-z])(a(?:sin|cos|tan|sec|csc|cot))\s+(-?[0-9.]+(?:\/[0-9.]+)?|[a-z])(?![\w(])/gi, '$1($2)');
+  // degree marks go; the solver switches Giac to degrees instead (hasDegrees)
+  s = s.replace(/(\d)\s*(?:\u00b0|degrees?\b|deg\b)/gi, '$1');
   // logs: log_2(x), log2(x), log base 2 -> logb(x,2); plain log -> base 10 (US convention)
   s = s.replace(/log_?\{?(\d+|e)\}?\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)/gi, (m, b, a) => b === 'e' ? `ln(${a})` : `logb(${a},${b})`);
   s = s.replace(/\blog\s*\(/gi, 'log10(');
@@ -51,7 +63,7 @@ export function normalize(raw) {
   s = s.replace(/log1\*0\(/g, 'log10(');
   s = s.replace(/\binf\b/g, 'inf');
   // decimals -> exact fractions so answers stay exact (2.5 -> (25/10))
-  s = s.replace(/(?<![\w.])(\d+)\.(\d+)(?![\w.])/g, (m, a, b) => `(${a}${b}/1${'0'.repeat(b.length)})`);
+  s = s.replace(/(?<![\w.])(\d+)\.(\d+)(?![\w.])/g, (m, a, b) => `(${(a + b).replace(/^0+(?=\d)/, '')}/1${'0'.repeat(b.length)})`);
   return s.trim();
 }
 
@@ -59,6 +71,9 @@ export function normalize(raw) {
 export function detectTask(text) {
   const t = String(text || '').toLowerCase();
   const strip = t.replace(/^\s*(\d+[.)]|[a-z][.)])\s+/, '');
+  if (looksLikeTriangle(String(text || ''))) return 'triangle';
+  if (/\b(to|in(to)?)\s+(radians?|degrees?)\b|\bconvert\b/.test(strip)) return 'convert';
+  if (/\b(verify|prove|identity|show that)\b/.test(strip)) return 'identity';
   const rules = [
     ['vertex', /vertex/], ['factor', /\bfactor/], ['expand', /\b(expand|multiply out|foil)/],
     ['simplify', /\bsimplify/], ['divide', /\b(divide|long division|synthetic)/], ['domain', /\bdomain/],
@@ -75,6 +90,7 @@ export function extractMath(text) {
   let s = String(text || '').trim();
   s = s.replace(/^\s*(\d+[.)]|[a-z][.)])\s+/i, '');
   s = s.replace(/\s*\bin vertex form\.?\s*$/i, '').replace(/^write\s+/i, '');
+  s = s.replace(/^(verify|prove|show that)(\s+(that|the identity))?\s*[:.]?\s*/i, '');
   s = s.replace(/^(solve|factor( completely)?|simplify|expand|evaluate|divide|find the (vertex|domain|inverse|zeros)( of)?)\s*(for\s+[a-z])?\s*[:.]?\s*/i, '');
   s = s.replace(/[.;]\s*$/, '');
   s = s.replace(/^y\s*=\s*(?=.*x)/i, m => m); // keep y = ... for vertex/inverse
@@ -173,6 +189,17 @@ export function createSolver(ev) {
     return typeof r === 'string' ? r.trim() : String(r);
   };
 
+  // True when L = R for every value of v (checks symbolically, then at a few sample points)
+  async function isIdentity(L, R, v) {
+    const d = `(${L})-(${R})`;
+    for (const f of ['simplify', 'trigsimplify']) { if ((await run(`${f}(${d})`)) === '0') return true; }
+    for (const x of ['0.7', '1.3', '2.9', '-0.4']) {
+      const n = parseFloat(await run(`evalf(subst(${d},${v}=${x}),12)`));
+      if (isNaN(n) || Math.abs(n) > 1e-9) return false;
+    }
+    return true;
+  }
+
   async function isZero(expr) {
     const r = await run(`simplify(${expr})`);
     if (r === '0') return true;
@@ -186,7 +213,11 @@ export function createSolver(ev) {
     const sides = expr.split(/(?:<=|>=|!=|<|>|=)/);
     const isIneq = rel && rel[1] !== '=';
     let domain = '';
-    if (hasTrig(expr) && !isIneq && !opts.general) domain = ` and ${v}>=0 and ${v}<2*pi`;
+    if (hasTrig(expr) && !isIneq && !opts.general) domain = opts.deg ? ` and ${v}>=0 and ${v}<360` : ` and ${v}>=0 and ${v}<2*pi`;
+    // a trig equation that is true for every angle is an identity, not something to solve
+    if (hasTrig(expr) && !isIneq && sides.length === 2 && await isIdentity(sides[0], sides[1], v)) {
+      return { plain: 'All real numbers', items: [], checked: true, identity: true, note: 'Both sides are equal for every angle where they are defined (it is an identity).' };
+    }
     const sysParts = splitTop(expr).filter(p => /=/.test(p));
     // systems: "2x+y=5, x-y=1"
     if (sysParts.length > 1) {
@@ -213,6 +244,9 @@ export function createSolver(ev) {
       return { plain: iv || items.map(toPlain).join(' or '), items: items.map(toPlain), checked: false, interval: true,
         note: iv ? 'Interval notation' : '' };
     }
+    if (!items.length && hasTrig(expr)) {
+      return { plain: 'No solution', items: [], checked: false, note: 'No angle makes this true. Remember sine and cosine are always between -1 and 1.' };
+    }
     if (!items.length) {
       // complex roots for polynomials
       const c = await run(`csolve(${expr},${v})`);
@@ -228,7 +262,8 @@ export function createSolver(ev) {
     for (const it of items) if (!(await isZero(`subst((${lhs})-(${rhs}),${v}=${it})`))) checked = false;
     const plainItems = items.map(toPlain);
     const res = { plain: plainItems.join(', '), items: plainItems, checked, v };
-    if (domain) res.note = 'Solutions in [0, 2\u03c0). Tap "All solutions" for the general answer.';
+    if (domain) res.note = opts.deg ? 'Solutions in [0\u00b0, 360\u00b0), in degrees. Tap "All solutions" for the general answer.' : 'Solutions in [0, 2\u03c0). Tap "All solutions" for the general answer.';
+    if (opts.deg) res.unit = '\u00b0';
     if (plainItems.some(p => /sqrt|ln|pi|e\^|\//.test(p))) {
       const dec = [];
       for (const it of items) dec.push(parseFloat(await run(`evalf(${it},6)`)));
@@ -237,9 +272,35 @@ export function createSolver(ev) {
     return res;
   }
 
-  async function steps(task, expr, v, result) {
+  async function noRealAnswer(e, task, deg, t0) {
+    let note = 'The result is not a real number (for example the square root or log of a negative number).';
+    const m = e.match(/a(sin|cos|sec|csc)\(([^()]*(?:\([^()]*\)[^()]*)*)\)/);
+    if (m) {
+      const arg = parseFloat(await run(`evalf(${m[2]},6)`));
+      const name = 'arc' + m[1];
+      note = /sin|cos/.test(m[1])
+        ? `${name} only takes inputs from -1 to 1, because sine and cosine are never bigger than 1 or smaller than -1. Here the input is ${isNaN(arg) ? toPlain(m[2]) : +arg.toFixed(4)}, so no angle works.`
+        : `${name} only takes inputs of 1 or more, or -1 or less. Here the input is ${isNaN(arg) ? toPlain(m[2]) : +arg.toFixed(4)}.`;
+    }
+    return { plain: 'No real answer', items: [], pretty: 'No real answer', checked: false, note, task, expr: e, deg,
+      steps: [{ k: 'Why', m: note }], ms: Date.now() - t0 };
+  }
+
+  async function steps(task, expr, v, result, deg) {
     const out = [];
     try {
+      if ((task === 'simplify' || task === 'evaluate') && INV.test(expr) && result.exact) {
+        // arcsin(cos(pi/3)): inside first, then the inverse function and its range
+        const m = expr.match(/a(sin|cos|tan|sec|csc|cot)\(([^()]*(?:\([^()]*\)[^()]*)*)\)/);
+        if (m) {
+          const inner = m[2];
+          if (/[a-z]/i.test(inner.replace(/sqrt|pi/g, ''))) out.push({ k: 'Work out the inside first', m: `${toPlain(inner)} = ${toPlain(await run(`simplify(${inner})`))}` });
+          const ranges = deg ? { sin: '-90\u00b0 to 90\u00b0', cos: '0\u00b0 to 180\u00b0', tan: '-90\u00b0 to 90\u00b0' } : { sin: '-\u03c0/2 to \u03c0/2', cos: '0 to \u03c0', tan: '-\u03c0/2 to \u03c0/2' };
+          if (ranges[m[1]]) out.push({ k: `arc${m[1]} always gives an angle from ${ranges[m[1]]}`, m: `arc${m[1]}(${toPlain(await run(`simplify(${inner})`))}) = ${result.exact}${deg ? '\u00b0' : ''}` });
+          out.push({ k: 'As a decimal', m: `${result.exact}${deg ? '\u00b0' : ''} \u2248 ${result.plain}${deg ? '\u00b0' : ''}` });
+        }
+        return out;
+      }
       if (task === 'solve' && /=/.test(expr) && !/(<=|>=|<|>)/.test(expr)) {
         const [l, r] = expr.split('=');
         const p = await run(`normal((${l})-(${r ?? 0}))`);
@@ -271,16 +332,64 @@ export function createSolver(ev) {
     return out;
   }
 
-  // Main entry. problem = { task?, expr, var?, general? }
-  async function solveProblem(problem) {
+  // Main entry. problem = { task?, expr, raw?, var?, general?, angle?: 'deg' | 'rad' }
+  // One problem at a time: the degree setting lives inside Giac, so two at once could mix it up.
+  let lock = Promise.resolve();
+  function solveProblem(problem) {
+    const job = lock.then(() => solveOne(problem));
+    lock = job.catch(() => null);
+    return job;
+  }
+  async function solveOne(problem) {
     const t0 = Date.now();
+    const raw = problem.raw || problem.expr || '';
+    let task = problem.command ? 'command' : (problem.task || detectTask(raw));
+    if (task === 'triangle') return triangleResult(problem, t0);
+    if (task === 'convert') return convertResult(problem, t0);
+    const wantDeg = !problem.command && (problem.angle === 'deg' || hasDegrees(raw) || hasDegrees(problem.expr));
+    // a problem written with pi is in radians (arcsin(cos(pi/3))): work it out in radians, show angles in degrees
+    const deg = wantDeg && !(/pi|\u03c0/i.test(raw + ' ' + (problem.expr || '')) && !hasDegrees(raw) && !hasDegrees(problem.expr));
+    if (deg) await run('angle_radian:=0');
+    try { return await solveCore(problem, task, deg, t0, wantDeg); }
+    finally { if (deg) await run('angle_radian:=1'); }
+  }
+
+  function triangleResult(problem, t0) {
+    let given = parseTriangle(problem.expr);
+    if (Object.keys(given).length < 3) given = { ...parseTriangle(problem.raw), ...given };
+    const r = solveTriangle(given);
+    const plain = triangleAnswer(given, r);
+    const sol = r.solutions;
+    const ok = sol.length && sol.every(x => Math.abs(x.A + x.B + x.C - 180) < 1e-6 && Math.abs(x.a / Math.sin(x.A * Math.PI / 180) - x.c / Math.sin(x.C * Math.PI / 180)) < 1e-6 * x.a);
+    return { plain, items: [plain], pretty: plain, checked: !!ok, checkText: 'angles add to 180\u00b0 and the Law of Sines holds for every side',
+      note: sol.length ? (r.method + '. ' + sol.map((x, i) => (sol.length > 1 ? `Triangle ${i + 1}: ` : '') + `a = ${+x.a.toFixed(2)}, b = ${+x.b.toFixed(2)}, c = ${+x.c.toFixed(2)}, A = ${+x.A.toFixed(2)}\u00b0, B = ${+x.B.toFixed(2)}\u00b0, C = ${+x.C.toFixed(2)}\u00b0, area = ${+x.area.toFixed(2)}`).join('; ')) : '',
+      steps: r.steps, task: 'triangle', expr: problem.expr, ms: Date.now() - t0 };
+  }
+
+  // 150 degrees -> 5pi/6 radians, and 5pi/6 -> 150 degrees
+  async function convertResult(problem, t0) {
+    const raw = String(problem.raw || problem.expr);
+    const toDeg = /\bto\s+degrees?\b|\bin\s+degrees?\b/i.test(raw) || (!hasDegrees(raw) && /pi|\u03c0|rad/i.test(raw));
+    const e = normalize(String(problem.expr || raw).replace(/\b(convert|to|into|in|from|radians?|rad|degrees?|deg)\b|\u00b0|[:?]/gi, ' '));
+    if (!e || /[a-z]{2,}/i.test(e.replace(/pi/g, ''))) throw new Error('engine');
+    const r = await run(`simplify((${e})*${toDeg ? '180/pi' : 'pi/180'})`);
+    if (isErr(r)) throw new Error('engine');
+    const d = parseFloat(await run(`evalf((${e})*${toDeg ? '180/pi' : 'pi/180'},10)`));
+    const plain = toPlain(r);
+    const res = { plain, items: [plain], checked: true, checkText: `multiplied by ${toDeg ? '180/\u03c0' : '\u03c0/180'}`, task: 'convert', expr: e,
+      note: toDeg ? 'Degrees = radians \u00b7 180/\u03c0' : 'Radians = degrees \u00b7 \u03c0/180', steps: [] };
+    if (!isNaN(d) && String(+d.toFixed(4)) !== plain) res.decimal = String(+d.toFixed(4));
+    res.pretty = toPretty(plain) + (toDeg ? '\u00b0' : '');
+    res.ms = Date.now() - t0;
+    return res;
+  }
+
+  async function solveCore(problem, task, deg, t0, showDeg = deg) {
     let expr = normalize(problem.command ? problem.expr : extractMath(problem.expr));
     if (!problem.command) {
       const words = (expr.match(/[a-z]{2,}/gi) || []).filter(w => !FUNCS.includes(w) && !['pi', 'and', 'or', 'inf', 'theta'].includes(w));
       if (words.length) throw new Error('engine');
     }
-    let task = problem.task || detectTask(problem.raw || problem.expr);
-    if (problem.command) task = 'command';
     let v = problem.var || pickVar(expr.replace(/^y\s*=/, ''));
     let res;
     if (task === 'command') {
@@ -291,7 +400,12 @@ export function createSolver(ev) {
     } else if (task === 'solve' || task === 'zeros') {
       if (task === 'zeros' && !/=/.test(expr)) expr = expr.replace(/^y\s*=\s*/, '') + '=0';
       if (!/(<=|>=|!=|<|>|=)/.test(expr)) expr += '=0';
-      res = await solveEq(expr, v, problem);
+      res = await solveEq(expr, v, { ...problem, deg });
+    } else if (task === 'identity') {
+      const [L, R] = expr.includes('=') ? expr.split('=') : [expr, '0'];
+      const yes = await isIdentity(L, R ?? '0', v);
+      res = { plain: yes ? 'True, it is an identity' : 'Not an identity', items: [], checked: yes, checkText: 'both sides are equal for every angle',
+        note: yes ? 'The left side simplifies to the right side.' : 'The two sides are different for some angles, so this is not an identity.' };
     } else if (task === 'factor') {
       const e = expr.replace(/=\s*0\s*$/, '');
       let r = await run(`factor(${e})`);
@@ -305,12 +419,35 @@ export function createSolver(ev) {
       res = { plain: toPlain(r), items: [toPlain(r)], checked: await isZero(`(${r})-(${expr})`) };
     } else if (task === 'simplify' || task === 'evaluate') {
       const e = expr.replace(/^y\s*=\s*/, '');
+      const numeric = !/[a-z]/i.test(e.replace(/sqrt|pi|ln|log10|logb|a?(?:sin|cos|tan|sec|csc|cot)|exp/g, ''));
+      if (numeric) {
+        // a complex result means there is no real answer (arcsin(3/2), sqrt(-4), log(-1), ...)
+        const dv = await run(`evalf(${e},10)`);
+        if (/(^|[^a-z])i($|[^a-z])/.test(dv) && !/(^|[^a-z])i($|[^a-z])/.test(e)) return noRealAnswer(e, task, deg, t0);
+      }
       let r = await run(`simplify(${e})`);
       if (isErr(r)) throw new Error('engine');
+      if (hasTrig(e) && !numeric) {
+        const r2 = await run(`trigsimplify(${e})`);
+        if (!isErr(r2) && toPlain(r2).length < toPlain(r).length) r = r2;
+      }
       res = { plain: toPlain(r), items: [toPlain(r)], checked: await isZero(`(${r})-(${e})`) };
-      if (!/[a-z]/i.test(e.replace(/sqrt|pi|ln|log10|logb|sin|cos|tan|exp/g, ''))) {
-        const d = parseFloat(await run(`evalf(${e},8)`));
-        if (!isNaN(d) && String(+d.toFixed(6)) !== res.plain) res.decimal = String(+d.toFixed(6));
+      if (numeric) {
+        const d = parseFloat(await run(`evalf(${e},10)`));
+        if (INV.test(e) && !isNaN(d)) {
+          // inverse trig: the answer line is the decimal, the exact angle is shown under it
+          let exact = res.plain, dec = String(+d.toFixed(4));
+          let other = parseFloat(await run(deg ? `evalf((${e})*pi/180,10)` : `evalf((${e})*180/pi,10)`));
+          if (showDeg && !deg) { // radians inside, degrees out
+            const radExact = exact, radDec = d;
+            exact = toPlain(await run(`simplify((${e})*180/pi)`)); dec = String(+other.toFixed(4)); other = radDec;
+            res.radExact = radExact;
+          }
+          const inDeg = deg || showDeg;
+          res.plain = dec; res.items = [dec]; res.exact = exact;
+          if (inDeg) res.unit = '\u00b0';
+          res.note = inDeg ? `Exact: ${exact}\u00b0, which is ${+other.toFixed(4)} radians.` : `Exact: ${exact} radians, which is ${+other.toFixed(4)}\u00b0.`;
+        } else if (!isNaN(d) && String(+d.toFixed(6)) !== res.plain) res.decimal = String(+d.toFixed(6));
       }
     } else if (task === 'vertex') {
       const e = expr.replace(/^[a-z]\s*(\([a-z]\))?\s*=\s*/i, '');
@@ -345,9 +482,9 @@ export function createSolver(ev) {
     } else {
       throw new Error('engine');
     }
-    res.task = task; res.expr = expr; res.v = v;
-    res.pretty = toPretty(res.plain);
-    res.steps = await steps(task, expr, v, res);
+    res.task = task; res.expr = expr; res.v = v; res.deg = deg;
+    res.pretty = res.unit && res.items.length ? res.items.map(x => toPretty(x) + res.unit).join(', ') : toPretty(res.plain);
+    res.steps = await steps(task, expr, v, res, deg || showDeg);
     res.ms = Date.now() - t0;
     return res;
   }

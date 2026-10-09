@@ -7,7 +7,7 @@ import { importFiles, hasBg, pageBgBlob, rotatePhotoPage } from './pdfimport.js'
 import { openSolve, closeSolve } from './solve.js';
 import { newPageSheet, pickNotebook } from './app.js';
 import { exportPage, exportNotebook } from './export.js';
-import { straightLine, cleanShape, lineFrom } from './shapes.js';
+import { straightLine, cleanShape, lineFrom, smoothPoints } from './shapes.js';
 
 const ED = $('#editor');
 let st = null; // editor state
@@ -313,8 +313,10 @@ function unmount(id) {
 
 // ---------------- drawing ----------------
 function strokePath(s, scale) {
-  const pts = [];
-  for (let i = 0; i < s.p.length; i += 3) pts.push([s.p[i] * scale, s.p[i + 1] * scale, s.p[i + 2]]);
+  let pts = [];
+  for (let i = 0; i < s.p.length; i += 3) pts.push([s.p[i], s.p[i + 1], s.p[i + 2]]);
+  if (!s.sh) pts = smoothPoints(pts); // round out fast curves (few points) instead of joining them with straight bits
+  for (const q of pts) { q[0] *= scale; q[1] *= scale; }
   const hasP = s.pr;
   const size = s.s * scale * (s.t === 'hi' ? 4.2 : 1.6);
   const outline = getStroke(pts, s.t === 'hi'

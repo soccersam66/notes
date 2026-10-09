@@ -2,7 +2,7 @@
 import { solver, warmEngine, engineState } from './engine.js';
 import { detectTask, extractMath, TASKS } from './mathengine.js';
 import { readProblem, explainSteps, hasKeys } from './gemini.js';
-import { addMistake } from './store.js';
+import { addMistake, getSettings, saveSettings } from './store.js';
 import { h, toast, I, esc } from './ui.js';
 
 let panel = null, state = null;
@@ -22,6 +22,7 @@ export function closeSolve() {
 const looksMath = (t) => /[0-9a-z]/i.test(t) && /[=+\-*/^<>()]|\d[a-z]/i.test(t);
 
 export async function openSolve(ctx) {
+  const settings = await getSettings();
   closeSolve();
   onClosed = ctx.onClose || null;
   const ed = document.getElementById('editor');
@@ -32,9 +33,10 @@ export async function openSolve(ctx) {
       <button class="icon soft press" id="sClose" aria-label="Close" style="width:34px;height:34px">${I.close()}</button></div></div>
     <div class="solve-body">
       <div class="read">
-        <span class="eyebrow" id="sSrc">Problem</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="eyebrow" id="sSrc">Problem</span>
+          <div class="angseg" id="sAng" role="group" aria-label="Angle unit"><button data-ang="rad">Rad</button><button data-ang="deg">Deg</button></div></div>
         <input id="sIn" placeholder="Type a problem, e.g. x^2-4x-5=0" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text">
-        <div class="taskchips" id="sTasks">${['solve', 'factor', 'simplify', 'expand', 'vertex', 'divide', 'domain', 'inverse'].map(t => `<button data-task="${t}">${TASKS[t]}</button>`).join('')}</div>
+        <div class="taskchips" id="sTasks">${['solve', 'factor', 'simplify', 'expand', 'triangle', 'vertex', 'divide', 'domain', 'inverse'].map(t => `<button data-task="${t}">${TASKS[t]}</button>`).join('')}</div>
         <span class="sub" style="font-size:12px" id="sHint"></span>
       </div>
       <div id="sOut"></div>
@@ -61,13 +63,24 @@ export async function openSolve(ctx) {
     panel.classList.remove('pop'); panel.style.left = ''; panel.style.top = '';
     shiftPage();
   };
-  state = { ctx, task: null, raw: '', t0: Date.now(), source: '' };
+  state = { ctx, task: null, raw: '', t0: Date.now(), source: '', angle: settings.solveAngle === 'deg' ? 'deg' : 'rad' };
+  const markAngle = () => panel.querySelectorAll('[data-ang]').forEach(b => b.classList.toggle('on', b.dataset.ang === state.angle));
+  markAngle();
+  panel.querySelectorAll('[data-ang]').forEach(b => b.onclick = async () => {
+    if (state.angle === b.dataset.ang) return;
+    state.angle = b.dataset.ang; markAngle();
+    saveSettings({ solveAngle: state.angle });
+    if (state.last) run({ ...state.last, task: state.last.task });
+  });
   panel.querySelector('#sClose').onclick = closeSolve;
   const inp = panel.querySelector('#sIn');
   let deb = 0;
   inp.addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => run({ expr: inp.value, raw: inp.value, source: 'typed' }), 650); });
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(deb); run({ expr: inp.value, raw: inp.value, source: 'typed' }); inp.blur(); } });
-  panel.querySelectorAll('[data-task]').forEach(b => b.onclick = () => { state.task = b.dataset.task; markTask(); run({ expr: inp.value, raw: inp.value, source: state.source || 'typed', task: state.task }); });
+  panel.querySelectorAll('[data-task]').forEach(b => b.onclick = () => {
+    state.task = state.userTask = b.dataset.task; markTask();
+    if (state.task === 'triangle') setHint('Type the 3 values you know, like a=7, b=9, C=40. Sides a, b, c; angles A, B, C in degrees (A is across from a).');
+    run({ expr: inp.value, raw: inp.value, source: state.source || 'typed', task: state.task }); });
   warmEngine();
 
   if (!ctx.sel) { setHint('Tap Solve and drag a box over a problem, or type one above.'); inp.focus(); return; }
@@ -129,15 +142,16 @@ function markTask() { if (panel) panel.querySelectorAll('[data-task]').forEach(b
 async function run(p) {
   if (!panel || !p.expr || !p.expr.trim()) return false;
   const out = panel.querySelector('#sOut');
-  const task = p.task || state.task || detectTask(p.raw || p.expr);
+  // a chip you tapped wins; otherwise guess from this problem (not from the last one)
+  const task = p.task || state.userTask || detectTask(p.raw || p.expr);
   state.task = task; markTask();
   setSrc(p.source === 'pdf' ? 'Read from the page' : p.source === 'ai' ? 'Read with AI, check it matches' : 'Problem');
   if (engineState.status !== 'ready') out.innerHTML = `<div class="row sub" style="font-size:14px;padding:8px 2px"><span class="spinner"></span>Starting the math engine (first time only)...</div>`;
-  const key = task + '|' + p.expr + '|' + (p.command || '') + '|' + (p.general ? 1 : 0);
+  const key = task + '|' + p.expr + '|' + (p.command || '') + '|' + (p.general ? 1 : 0) + '|' + state.angle;
   const t0 = performance.now();
   let res;
   try {
-    res = cache.get(key) || await solver.solveProblem({ expr: p.expr, raw: p.raw, task, command: p.command, var: p.var, general: p.general });
+    res = cache.get(key) || await solver.solveProblem({ expr: p.expr, raw: p.raw, task, command: p.command, var: p.var, general: p.general, angle: state.angle });
     cache.set(key, res);
   } catch (e) {
     out.innerHTML = `<div class="warnline" style="padding:6px 2px">${I.mistake(16)} The engine could not work with that. Check the problem above (use ^ for powers, * between things), or pick a different task.</div>`;
@@ -149,13 +163,13 @@ async function run(p) {
   out.innerHTML = `
     <div class="answer">
       <span class="eyebrow" style="color:var(--on);opacity:.8">Answer line</span>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span class="big">${esc(res.pretty)}</span><button class="copy press" id="sCopy">Copy</button></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span class="big${res.pretty.length > 22 ? ' long' : ''}">${esc(res.pretty)}</span><button class="copy press" id="sCopy">Copy</button></div>
       ${res.decimal ? `<span style="font-size:14px;opacity:.85">About ${esc(res.decimal)}</span>` : ''}
     </div>
-    ${res.checked ? `<div class="okline">${I.check(15, 3)} Checked: ${task === 'solve' ? 'every answer works in the original problem' : 'it matches the original exactly'}</div>`
-      : `<div class="sub" style="font-size:13px;font-weight:600">${p.command ? 'Computed by the math engine from the AI\'s setup. Check the setup matches the question.' : 'Exact result from the math engine.'}</div>`}
+    ${res.checked ? `<div class="okline">${I.check(15, 3)} Checked: ${res.checkText || (task === 'solve' ? 'every answer works in the original problem' : 'it matches the original exactly')}</div>`
+      : !(res.items && res.items.length) ? '' : `<div class="sub" style="font-size:13px;font-weight:600">${p.command ? 'Computed by the math engine from the AI\'s setup. Check the setup matches the question.' : 'Exact result from the math engine.'}</div>`}
     ${res.note ? `<div class="sub" style="font-size:13px">${esc(res.note)}</div>` : ''}
-    ${/\[0, 2/.test(res.note || '') ? `<button class="btn sm press" id="sGeneral" style="align-self:flex-start">All solutions</button>` : ''}
+    ${/Solutions in \[0/.test(res.note || '') ? `<button class="btn sm press" id="sGeneral" style="align-self:flex-start">All solutions</button>` : ''}
     <button class="btn press" id="sSteps" style="height:46px">${res.steps.length ? 'Show steps' : 'Explain steps with AI'}</button>
     <div id="sStepList" style="display:flex;flex-direction:column;gap:10px"></div>
     <div class="row"><button class="btn grow press" id="sMistake">Save to Mistakes</button></div>

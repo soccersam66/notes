@@ -1,5 +1,5 @@
 // Shape clean-up tests: node notes-app/test/shapes.test.mjs
-import { straightLine, cleanShape } from '../js/shapes.js';
+import { straightLine, cleanShape, smoothPoints } from '../js/shapes.js';
 
 let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5);
 const flat = (pts, jitter = 0) => pts.flatMap(([x, y]) => [x + rnd() * jitter, y + rnd() * jitter, 0.5]);
@@ -39,5 +39,16 @@ t('line starts where the stroke starts', Math.abs(L[0] - wobbly[0]) < 0.01 && Ma
 t('line ends where the stroke ends', Math.abs(L[L.length - 3] - wobbly[wobbly.length - 3]) < 0.01, true);
 t('a closed rough circle is not a line', !!straightLine(flat(ellipse(200, 200, 60, 60), 3)), false);
 
+// smoothing fast strokes (few far-apart points) so curves stay round
+const fastC = Array.from({ length: 6 }, (_, i) => { const a = (45 + i / 5 * 270) * Math.PI / 180; return [100 + 30 * Math.cos(a), 100 - 30 * Math.sin(a), 0.5]; });
+const sm = smoothPoints(fastC);
+let maxGap = 0; for (let i = 1; i < sm.length; i++) maxGap = Math.max(maxGap, Math.hypot(sm[i][0] - sm[i - 1][0], sm[i][1] - sm[i - 1][1]));
+t('smoothing fills gaps (curve a bit longer than the chord)', maxGap <= 3.2, true);
+t('smoothing keeps the real points', fastC.every(q => sm.some(r => r[0] === q[0] && r[1] === q[1])), true);
+// halfway between two points the curve should bulge out toward the circle, not sit on the straight chord
+const radii = sm.map(q => Math.hypot(q[0] - 100, q[1] - 100));
+t('smoothed fast c stays round (radius 30 +- 2.5)', radii.every(r => r > 27.5 && r < 32.5), true);
+t('dense strokes are left alone', smoothPoints([[0, 0, .5], [1, 0, .5], [2, 0, .5], [3, 1, .5]]).length, 4);
+t('short strokes are left alone', smoothPoints([[0, 0, .5], [50, 0, .5]]).length, 2);
 console.log(`${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);
