@@ -6,6 +6,7 @@ import { importPdfFile } from './pdfimport.js';
 import { exportBackup, importBackup } from './backup.js';
 import { warmEngine, engineState, onEngineState } from './engine.js';
 import { enablePageDrag } from './pagegrid.js';
+import { exportPage, exportNotebook } from './export.js';
 
 const view = $('#view');
 let settings;
@@ -269,6 +270,7 @@ async function renderClass(id, tab) {
     const nb = nbs.find(x => x.id === b.dataset.nbmore);
     menu(e.currentTarget, [
       { label: 'Rename', icon: I.edit(), run: async () => { const n = await askText({ title: 'Rename notebook', value: nb.name }); if (n) { await S.updateNotebook(nb.id, { name: n }); renderClass(id, tab); } } },
+      { label: 'Export as PDF', icon: I.file(), run: () => { toast('Making PDF...', 60000); exportNotebook(nb.id); } },
       { label: 'Delete notebook', icon: I.trash(), danger: true, run: async () => { if (await confirmSheet({ title: `Delete ${nb.name}?`, body: 'All its pages and writing will be deleted.' })) { await S.deleteNotebook(nb.id); renderClass(id, tab); } } }
     ]);
   });
@@ -279,6 +281,10 @@ function pageMenu(key, anchor, refresh) {
   const [nbId, pageId] = key.split('/');
   menu(anchor, [
     { label: 'Open', icon: I.file(), run: () => go('#/nb/' + key) },
+    { label: 'Export page as PDF', icon: I.file(), run: async () => {
+      const nb = await S.getNotebook(nbId); const n = (await S.listPages(nbId)).findIndex(x => x.id === pageId) + 1;
+      toast('Making PDF...', 60000); exportPage(pageId, `${nb ? nb.name : 'Page'} p${n}`);
+    } },
     { label: 'Move to notebook', icon: I.move(18), run: async () => {
       const to = await pickNotebook(nbId); if (!to) return;
       await S.movePageToNotebook(pageId, to.id); toast('Moved to ' + to.name); refresh();

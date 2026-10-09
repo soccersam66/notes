@@ -25,6 +25,7 @@ Sam's personal class-notes web app for his iPad. Hosted on GitHub Pages from `ma
 - `js/pdfimport.js`: pdf.js import, stores page text boxes (for Solve without AI) and renders pages to cached JPEGs.
 - `js/app.js` Settings also has "Import keys from file" (`parseKeyFile`): reads a .txt, one key per line, merges into IndexedDB settings, shows only the last 4 characters. Never log keys.
 - `js/store.js` / `js/db.js`: IndexedDB (classes, notebooks, pages, ink, pdfs, renders, todos, notes, mistakes, meta).
+- `js/export.js`: PDF export of a page or notebook (editor More menu, notebook menu, page menu). Own tiny PDF writer, one JPEG per page (1440 px wide, light colours even in dark mode, Letter-size pages at 0.75 pt per page unit). Pages are drawn one at a time and their canvases freed. The share sheet opens from a "PDF ready" sheet because Safari only allows `navigator.share` straight from a tap.
 - `js/backup.js`: one-file JSON backup (never includes keys).
 
 ## Tests
