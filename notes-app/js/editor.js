@@ -39,7 +39,7 @@ export async function openEditor(notebookId, pageId, { onClose } = {}) {
     tool: 'pen', color: 0, size: 1, zoom: 1, baseW: 0, shapes: !!settings.shapes,
     mounted: new Map(),   // pageId -> {el, canvas, ctx, img, url}
     inkCache: new Map(),  // pageId -> strokes[]
-    dirty: new Set(), thumbsDirty: new Set(),
+    dirty: new Set(), thumbsDirty: new Set(), thumbsMissing: new Set(),
     undo: [], redo: [], drawing: null, sel: null, boxMode: false, box: null, current: pageId || (pages[0] && pages[0].id)
   };
   build();
@@ -253,8 +253,9 @@ function scrollToPage(id, smooth = true) {
   sc.scrollTo({ top: el.offsetTop - 84, behavior: smooth ? 'smooth' : 'auto' });
   st.current = id; updatePageNo();
 }
-let scrollRaf = 0;
+let scrollRaf = 0, lastScrollAt = 0;
 function onScroll() {
+  lastScrollAt = Date.now();
   if (scrollRaf) return;
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = 0;
@@ -285,22 +286,24 @@ async function mount(id) {
   if (hasBg(p)) {
     const img = document.createElement('img'); img.className = 'bg'; img.alt = '';
     el.insertBefore(img, el.firstChild); m.img = img;
-    const blob = await pageBgBlob(p);
+    const blob = await pageBgBlob(p, () => !!st && st.mounted.get(id) === m);
     if (blob && st && st.mounted.get(id) === m) { m.url = URL.createObjectURL(blob); img.src = m.url; }
   }
+  // scrolled away while the picture loaded: unmount already ran, so make no canvas (it would never be freed)
+  if (!st || st.mounted.get(id) !== m) return;
   const c = document.createElement('canvas');
   c.width = Math.round(w * dpr); c.height = Math.round(hh * dpr);
   el.appendChild(c);
   m.canvas = c; m.ctx = c.getContext('2d'); m.scale = (w / p.w) * dpr; m.cssScale = w / p.w;
   if (!st.inkCache.has(id)) st.inkCache.set(id, (await S.getInk(id)).strokes || []);
   if (!st || st.mounted.get(id) !== m) return;
-  redraw(id);
-  if (!p.thumb) { st.thumbsDirty.add(id); if (hasBg(p) && m.img && !m.img.complete) m.img.addEventListener('load', () => st && makeThumb(id), { once: true }); else makeThumb(id); }
+  redraw(id, true);
+  if (!p.thumb) { st.thumbsMissing.add(id); scheduleThumbs(); } // made later, when scrolling stops
 }
 function unmount(id) {
   const m = st && st.mounted.get(id);
   if (!m) return;
-  if (st.thumbsDirty.has(id)) makeThumb(id);
+  if (st.thumbsDirty.has(id) || st.thumbsMissing.has(id)) scheduleThumbs();
   if (m.canvas) { m.canvas.width = 0; m.canvas.height = 0; m.canvas.remove(); }
   if (m.live) { m.live.width = 0; m.live.remove(); }
   if (m.img) { m.img.remove(); }
@@ -336,10 +339,10 @@ export function paintStroke(ctx, s, scale) {
   ctx.fill(strokePath(s, scale));
   ctx.restore();
 }
-function redraw(id) {
+function redraw(id, fresh = false) {
   const m = st.mounted.get(id); if (!m || !m.ctx) return;
   const { ctx, canvas, scale } = m;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!fresh) ctx.clearRect(0, 0, canvas.width, canvas.height); // a new canvas is already clear (and clearing a big one is slow)
   const strokes = st.inkCache.get(id) || [];
   // highlighter under pen
   strokes.forEach(s => { if (s.t === 'hi') paintStroke(ctx, s, scale); });
@@ -693,7 +696,7 @@ function redo() { const op = st.redo.pop(); if (!op) return; apply(op, false); s
 // ---------------- saving ----------------
 let saveTimer = 0;
 function changed(id, doRedraw = true) {
-  st.dirty.add(id); st.thumbsDirty.add(id);
+  st.dirty.add(id); st.thumbsDirty.add(id); scheduleThumbs(1500);
   if (doRedraw) redraw(id);
   refreshToolbar();
   clearTimeout(saveTimer);
@@ -711,9 +714,24 @@ async function flushAll() {
   await flushInk();
   for (const id of Array.from(st.thumbsDirty)) await makeThumb(id);
 }
+// Thumbnails for the notebook grid are made when the editor is quiet (not while scrolling or writing),
+// one at a time, so they never stutter the scroll on the old iPad.
+let thumbTimer = 0;
+function scheduleThumbs(delay = 1000) {
+  clearTimeout(thumbTimer);
+  thumbTimer = setTimeout(nextThumb, delay);
+}
+async function nextThumb() {
+  if (!st) return;
+  if (st.drawing || Date.now() - lastScrollAt < 800) return scheduleThumbs(600);
+  const id = st.thumbsDirty.values().next().value || st.thumbsMissing.values().next().value;
+  if (!id) return;
+  await makeThumb(id);
+  if (st && (st.thumbsDirty.size || st.thumbsMissing.size)) scheduleThumbs(150);
+}
 async function makeThumb(id) {
   if (!st) return;
-  st.thumbsDirty.delete(id);
+  st.thumbsDirty.delete(id); st.thumbsMissing.delete(id);
   const p = st.pages.find(x => x.id === id); if (!p) return;
   const W = 240, scale = W / p.w, H = Math.round(p.h * scale);
   const c = document.createElement('canvas'); c.width = W; c.height = H;

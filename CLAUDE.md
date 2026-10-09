@@ -12,6 +12,7 @@ Sam's personal class-notes web app for his iPad. Hosted on GitHub Pages from `ma
 - Keep the design: Cal AI-like, minimal, system font, rounded cards, spring animations (cubic-bezier(.2,1.3,.35,1)), light/dark, one accent (black, blue #2F5BEA or green #18794A). CSS tokens are in `notes-app/css/app.css` `:root`.
 - Memory matters on the old iPad: the editor only mounts pages near the viewport (IntersectionObserver). Keep it that way. A past app crashed from too many PDF page images in memory.
 - Free tiers only (spending freeze). No paid services.
+- Editor memory rules (from the Oct 2026 60-page check): `mount()` is async, so after every `await` in it check `st.mounted.get(id) === m` before creating anything (a canvas made after unmount is never freed; this once leaked 850 MB). PDF pages render one at a time through the queue in `pageBgBlob()`. Grid thumbnails are made only when the editor is idle (`scheduleThumbs`), never during scroll. A fresh canvas is not cleared (`redraw(id, true)`).
 
 ## Layout (all inside `notes-app/`)
 - `notes-app/index.html`, `notes-app/manifest.webmanifest`, `notes-app/sw.js` (offline cache; bump `VERSION` whenever any cached file changes, and add new files to `CORE`; `CORE` paths are relative to `notes-app/`). Install fetches with `cache: 'reload'` so an update never stores stale copies. Settings shows the running version (the cache name). `js/app.js` reloads the app once when a new service worker takes over, so an update shows on the first launch after a deploy.

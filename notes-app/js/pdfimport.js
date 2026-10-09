@@ -63,13 +63,24 @@ export async function importPdfFile(file, classId, progress = () => {}, notebook
 export const hasBg = (p) => !!p && (p.paper === 'pdf' || p.paper === 'photo');
 
 // The background picture of a page as a JPEG blob (PDF renders are cached in 'renders').
-export async function pageBgBlob(p) {
+// PDF pages render one at a time (the old iPad chokes on several at once while scrolling);
+// stillWanted() lets a page you already scrolled past give up its turn.
+let renderQueue = Promise.resolve();
+export async function pageBgBlob(p, stillWanted = () => true) {
   if (p.paper === 'photo') { const r = await db.get('pdfs', p.imgId); return r ? r.blob : null; }
   if (p.paper !== 'pdf') return null;
   const r = await db.get('renders', p.id);
   if (r) return r.blob;
-  try { const blob = await renderPdfPageBlob(p.pdfId, p.pdfPage, 1632); await db.put('renders', { pageId: p.id, blob }); return blob; }
-  catch (e) { console.warn(e); return null; }
+  const job = renderQueue.then(async () => {
+    if (!stillWanted()) return null;
+    const again = await db.get('renders', p.id); // rendered while we waited
+    if (again) return again.blob;
+    const blob = await renderPdfPageBlob(p.pdfId, p.pdfPage, 1632);
+    await db.put('renders', { pageId: p.id, blob });
+    return blob;
+  });
+  renderQueue = job.catch(() => null);
+  try { return await job; } catch (e) { console.warn(e); return null; }
 }
 
 // A photo becomes a page: scaled to at most 1632 px wide (memory on the old iPad), saved as JPEG.
