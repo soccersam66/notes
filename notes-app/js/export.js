@@ -1,8 +1,7 @@
 // Export a page or a whole notebook as a PDF: paper, PDF slides and ink, one picture per page.
 // A tiny PDF writer (JPEG pages) keeps it dependency-free and light on the old iPad's memory.
 import * as S from './store.js';
-import { db } from './db.js';
-import { renderPdfPageBlob } from './pdfimport.js';
+import { hasBg, pageBgBlob } from './pdfimport.js';
 import { paintStroke, drawPaper } from './editor.js';
 import { sheet, toast, I, esc } from './ui.js';
 
@@ -15,10 +14,9 @@ async function pageJpeg(p) {
   c.width = EXPORT_W; c.height = Math.round(p.h * scale);
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
-  if (p.paper === 'pdf') {
-    let r = await db.get('renders', p.id);
-    if (!r) { try { r = { pageId: p.id, blob: await renderPdfPageBlob(p.pdfId, p.pdfPage, 1632) }; await db.put('renders', r); } catch (e) { r = null; } }
-    if (r) { const bmp = await createImageBitmap(r.blob); ctx.drawImage(bmp, 0, 0, c.width, c.height); bmp.close && bmp.close(); }
+  if (hasBg(p)) {
+    const blob = await pageBgBlob(p);
+    if (blob) { const bmp = await createImageBitmap(blob); ctx.drawImage(bmp, 0, 0, c.width, c.height); bmp.close && bmp.close(); }
   } else drawPaper(ctx, p, scale, 0, 0, c.width, c.height, true);
   const strokes = (await S.getInk(p.id)).strokes || [];
   strokes.forEach(s => { if (s.t === 'hi') paintStroke(ctx, { ...s, forceLight: true }, scale); });

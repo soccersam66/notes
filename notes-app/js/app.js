@@ -2,7 +2,7 @@ import * as S from './store.js';
 import { db, persist, usage } from './db.js';
 import { $, $$, h, toast, sheet, askText, confirmSheet, menu, applyTheme, moveIndicator, I, esc } from './ui.js';
 import { openEditor, closeEditor, editorOpen } from './editor.js';
-import { importPdfFile } from './pdfimport.js';
+import { importFiles, hasBg } from './pdfimport.js';
 import { exportBackup, importBackup } from './backup.js';
 import { warmEngine, engineState, onEngineState } from './engine.js';
 import { enablePageDrag } from './pagegrid.js';
@@ -198,7 +198,7 @@ async function renderClass(id, tab) {
     <div class="rise" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:10px;flex-wrap:wrap">
       <button class="press" id="back" style="display:flex;align-items:center;gap:4px;font-size:17px;font-weight:600;color:var(--accText);padding:8px 4px">${I.back()} Classes</button>
       <div class="row">
-        <button class="btn card press" id="importPdf">${I.file()} Import PDF</button>
+        <button class="btn card press" id="importPdf">${I.file()} Import</button>
         <button class="btn acc press" id="nlm">${I.book()} ${c.notebookLM ? 'Open in NotebookLM' : 'Link NotebookLM'}</button>
         <button class="icon card press" id="classMore" aria-label="More">${I.more()}</button>
       </div>
@@ -208,7 +208,7 @@ async function renderClass(id, tab) {
       <div class="seg" id="seg"><div class="ind"></div><button data-tab="notebooks" class="${tab !== 'mistakes' ? 'on' : ''}">Notebooks</button><button data-tab="mistakes" class="${tab === 'mistakes' ? 'on' : ''}">Mistakes</button></div>
     </div>
     <div id="classBody"></div>
-    <input type="file" id="pdfIn" accept="application/pdf,.pdf" class="hide">`;
+    <input type="file" id="pdfIn" accept="application/pdf,.pdf,image/*" multiple class="hide">`;
   moveIndicator($('#seg'));
   $('#back').onclick = () => go('#/classes');
   $$('#seg button').forEach(b => b.onclick = () => go(`#/class/${id}/${b.dataset.tab}`));
@@ -226,9 +226,12 @@ async function renderClass(id, tab) {
   ]);
   $('#importPdf').onclick = () => $('#pdfIn').click();
   $('#pdfIn').onchange = async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    const nb = await importPdfFile(f, id, (msg) => toast(msg, 4000));
-    if (nb) { toast('Imported ' + f.name); go(`#/nb/${nb.id}`); }
+    const files = Array.from(e.target.files || []); e.target.value = ''; if (!files.length) return;
+    toast(files.length > 1 ? `Importing ${files.length} files...` : 'Importing...', 60000);
+    const r = await importFiles(files, { classId: id, progress: (msg) => toast(msg, 60000) });
+    const bad = r.skipped.length ? ` Could not read: ${r.skipped.join(', ')}` : '';
+    if (r.notebooks.length === 1) { toast('Imported.' + bad, 3000); go(`#/nb/${r.notebooks[0]}`); }
+    else { toast(`Imported into ${r.notebooks.length} notebooks.` + bad, 3500); renderClass(id, tab); }
   };
   const body = $('#classBody');
   if (tab === 'mistakes') {
@@ -246,7 +249,7 @@ async function renderClass(id, tab) {
         <button class="icon soft press" data-nbmore="${nb.id}" aria-label="Notebook options">${I.more()}</button>
       </div>
       <div class="pages-grid" data-nb="${nb.id}">
-        ${pagesBy[i].map((p, j) => `<button class="pg lift" data-page="${nb.id}/${p.id}"><div class="thumb ${p.h < p.w ? 'wide' : ''}">${p.thumb ? `<img src="${p.thumb}" alt="" loading="lazy">` : (p.paper !== 'pdf' ? paperSwatch(p.paper) : '')}<span class="num">${j + 1}</span></div></button>`).join('')}
+        ${pagesBy[i].map((p, j) => `<button class="pg lift" data-page="${nb.id}/${p.id}"><div class="thumb ${p.h < p.w ? 'wide' : ''}">${p.thumb ? `<img src="${p.thumb}" alt="" loading="lazy">` : (!hasBg(p) ? paperSwatch(p.paper) : '')}<span class="num">${j + 1}</span></div></button>`).join('')}
         <button class="pg add press" data-newpage="${nb.id}"><div class="thumb"><span style="display:flex;flex-direction:column;align-items:center;gap:6px;font-size:14px;font-weight:700">${I.plus(26)}New page</span></div></button>
       </div>
     </div>`).join('') + `<div class="rise d5" style="margin-top:16px"><button class="btn card press" id="newNb">${I.plus(18)} New notebook</button></div>`;

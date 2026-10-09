@@ -74,6 +74,8 @@ export async function createPage(notebookId, { paper = 'graph', afterId = null, 
 }
 export async function updatePage(id, patch) { const p = await getPage(id); if (!p) return null; Object.assign(p, patch, { updated: now() }); await db.put('pages', p); return p; }
 export async function deletePage(id) {
+  const p = await getPage(id);
+  if (p && p.paper === 'photo' && p.imgId) await db.del('pdfs', p.imgId); // a photo belongs to one page
   await db.del('pages', id); await db.del('ink', id); await db.del('renders', id);
 }
 // New page order for a notebook: ids top to bottom. Renumbers 1..n in one transaction.

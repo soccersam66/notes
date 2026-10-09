@@ -3,7 +3,7 @@ import * as S from './store.js';
 import { db } from './db.js';
 import { $, h, toast, menu, confirmSheet, askText, I, esc } from './ui.js';
 import { getStroke } from '../vendor/pf/perfect-freehand.js';
-import { renderPdfPageBlob, importPdfFile } from './pdfimport.js';
+import { importFiles, hasBg, pageBgBlob, rotatePhotoPage } from './pdfimport.js';
 import { openSolve, closeSolve } from './solve.js';
 import { newPageSheet, pickNotebook } from './app.js';
 import { exportPage, exportNotebook } from './export.js';
@@ -95,7 +95,7 @@ function build() {
     </div>
     <div id="scroller"><div id="pages"></div></div>
     <div class="zoom-pill glass"><button id="zOut" aria-label="Zoom out">${I.minus()}</button><span id="zVal">100%</span><button id="zIn" aria-label="Zoom in">${I.plus(18)}</button></div>
-    <input type="file" id="edPdf" accept="application/pdf,.pdf" class="hide">`;
+    <input type="file" id="edPdf" accept="application/pdf,.pdf,image/*" multiple class="hide">`;
   ED.querySelector('#edBack').onclick = async () => { const cb = st.onClose; await closeEditor(); cb && cb(); };
   ED.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
   ED.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { st.color = +b.dataset.color; if (st.tool === 'eraser' || st.tool === 'lasso') setTool('pen'); refreshToolbar(); });
@@ -113,9 +113,15 @@ function build() {
   ED.querySelector('#zIn').onclick = () => setZoom(st.zoom * 1.25);
   ED.querySelector('#zOut').onclick = () => setZoom(st.zoom / 1.25);
   ED.querySelector('#edPdf').onchange = async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    await importPdfFile(f, st.nb.classId, (m) => toast(m, 4000), st.nb.id);
-    await reloadPages(); toast('Added ' + f.name);
+    const files = Array.from(e.target.files || []); e.target.value = ''; if (!files.length) return;
+    const before = st.pages.length;
+    toast(files.length > 1 ? `Importing ${files.length} files...` : 'Importing...', 60000);
+    const r = await importFiles(files, { classId: st.nb.classId, notebookId: st.nb.id, progress: (m) => toast(m, 60000) });
+    if (!st) return;
+    await reloadPages();
+    const added = st.pages.length - before;
+    toast(`Added ${added} page${added === 1 ? '' : 's'}` + (r.skipped.length ? `. Could not read: ${r.skipped.join(', ')}` : ''), 3500);
+    if (added && st.pages[before]) scrollToPage(st.pages[before].id);
   };
   const sc = ED.querySelector('#scroller');
   // Pencil must never scroll the page; fingers scroll unless finger drawing is on.
@@ -156,10 +162,15 @@ function setTool(t) { st.tool = t; clearSelection(); refreshToolbar(); }
 function moreMenu(anchor) {
   const p = st.pages.find(x => x.id === st.current);
   const items = [
-    { label: 'Add a PDF to this notebook', icon: I.file(), run: () => ED.querySelector('#edPdf').click() },
+    { label: 'Add PDFs or photos', icon: I.file(), run: () => ED.querySelector('#edPdf').click() },
     { label: 'Rename notebook', icon: I.edit(), run: async () => { const n = await askText({ title: 'Rename notebook', value: st.nb.name }); if (n) { st.nb = await S.updateNotebook(st.nb.id, { name: n }); ED.querySelector('.ed-title b').textContent = n; } } }
   ];
-  if (p && p.paper !== 'pdf') {
+  const rotate = (right) => async () => {
+    await flushAll(); unmount(p.id); st.inkCache.delete(p.id);
+    await rotatePhotoPage(p.id, right); await reloadPages(); scrollToPage(p.id, false);
+  };
+  if (p && p.paper === 'photo') items.push({ label: 'Rotate photo left', icon: I.undo(), run: rotate(false) }, { label: 'Rotate photo right', icon: I.redo(), run: rotate(true) });
+  if (p && !hasBg(p)) {
     items.push({ label: 'Change paper of this page', icon: I.file(), run: () => changePaper(p) });
   }
   items.push(
@@ -217,7 +228,7 @@ function layout(keep) {
 function styleOne(p, el) {
   const w = st.baseW * st.zoom, scale = w / p.w, hh = p.h * scale;
   el.style.width = w + 'px'; el.style.height = hh + 'px';
-  el.className = 'page' + (p.paper && p.paper !== 'pdf' && p.paper !== 'blank' ? ' paper-' + p.paper : '');
+  el.className = 'page' + (p.paper && !hasBg(p) && p.paper !== 'blank' ? ' paper-' + p.paper : '');
   const sp = PAPER_SPACING[p.paper];
   if (sp) { el.style.backgroundSize = p.paper === 'lined' ? `100% ${sp * scale}px` : `${sp * scale}px ${sp * scale}px`; el.style.backgroundPosition = p.paper === 'lined' ? `0 ${96 * scale}px` : `${(p.w % sp) / 2 * scale}px ${(p.h % sp) / 2 * scale}px`; }
   else { el.style.backgroundSize = ''; el.style.backgroundPosition = ''; }
@@ -271,15 +282,11 @@ async function mount(id) {
   let dpr = Math.min(window.devicePixelRatio || 1, 2);
   const maxPx = 6e6;
   if (w * hh * dpr * dpr > maxPx) dpr = Math.sqrt(maxPx / (w * hh));
-  if (p.paper === 'pdf') {
+  if (hasBg(p)) {
     const img = document.createElement('img'); img.className = 'bg'; img.alt = '';
     el.insertBefore(img, el.firstChild); m.img = img;
-    let r = await db.get('renders', id);
-    if (!r) {
-      try { const blob = await renderPdfPageBlob(p.pdfId, p.pdfPage, 1632); r = { pageId: id, blob }; await db.put('renders', r); }
-      catch (e) { console.warn(e); }
-    }
-    if (r && st && st.mounted.get(id) === m) { m.url = URL.createObjectURL(r.blob); img.src = m.url; }
+    const blob = await pageBgBlob(p);
+    if (blob && st && st.mounted.get(id) === m) { m.url = URL.createObjectURL(blob); img.src = m.url; }
   }
   const c = document.createElement('canvas');
   c.width = Math.round(w * dpr); c.height = Math.round(hh * dpr);
@@ -288,7 +295,7 @@ async function mount(id) {
   if (!st.inkCache.has(id)) st.inkCache.set(id, (await S.getInk(id)).strokes || []);
   if (!st || st.mounted.get(id) !== m) return;
   redraw(id);
-  if (!p.thumb) { st.thumbsDirty.add(id); if (p.paper === 'pdf' && m.img && !m.img.complete) m.img.addEventListener('load', () => st && makeThumb(id), { once: true }); else makeThumb(id); }
+  if (!p.thumb) { st.thumbsDirty.add(id); if (hasBg(p) && m.img && !m.img.complete) m.img.addEventListener('load', () => st && makeThumb(id), { once: true }); else makeThumb(id); }
 }
 function unmount(id) {
   const m = st && st.mounted.get(id);
@@ -714,10 +721,10 @@ async function makeThumb(id) {
   const paperCol = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim() || '#fff';
   ctx.fillStyle = paperCol; ctx.fillRect(0, 0, W, H);
   const m = st.mounted.get(id);
-  if (p.paper === 'pdf' && m && m.img && m.img.complete && m.img.naturalWidth) ctx.drawImage(m.img, 0, 0, W, H);
-  else if (p.paper === 'pdf') {
-    const r = await db.get('renders', id);
-    if (r) { try { const bmp = await createImageBitmap(r.blob); ctx.drawImage(bmp, 0, 0, W, H); bmp.close && bmp.close(); } catch (e) {} }
+  if (hasBg(p) && m && m.img && m.img.complete && m.img.naturalWidth) ctx.drawImage(m.img, 0, 0, W, H);
+  else if (hasBg(p)) {
+    const blob = await pageBgBlob(p);
+    if (blob) { try { const bmp = await createImageBitmap(blob); ctx.drawImage(bmp, 0, 0, W, H); bmp.close && bmp.close(); } catch (e) {} }
   } else drawPaper(ctx, p, scale);
   const strokes = st ? (st.inkCache.get(id) || []) : [];
   strokes.forEach(s => { if (s.t === 'hi') paintStroke(ctx, s, scale); });
@@ -753,10 +760,10 @@ function solveCtx(sel) {
       const c = document.createElement('canvas'); c.width = Math.round(w * scale); c.height = Math.round(hh * scale);
       const ctx = c.getContext('2d');
       ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
-      if (page.paper !== 'pdf') drawPaper(ctx, page, scale, x * scale, y * scale, c.width, c.height, true);
+      if (!hasBg(page)) drawPaper(ctx, page, scale, x * scale, y * scale, c.width, c.height, true);
       else {
-        const r = await db.get('renders', page.id);
-        if (r) { const bmp = await createImageBitmap(r.blob); const k = bmp.width / page.w; ctx.drawImage(bmp, x * k, y * k, w * k, hh * k, 0, 0, c.width, c.height); bmp.close && bmp.close(); }
+        const blob = await pageBgBlob(page);
+        if (blob) { const bmp = await createImageBitmap(blob); const k = bmp.width / page.w; ctx.drawImage(bmp, x * k, y * k, w * k, hh * k, 0, 0, c.width, c.height); bmp.close && bmp.close(); }
       }
       // ink in dark colours so the reader sees it clearly on white
       const strokes = st.inkCache.get(page.id) || [];
