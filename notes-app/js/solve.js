@@ -8,12 +8,19 @@ import { h, toast, I, esc } from './ui.js';
 let panel = null, state = null;
 const cache = new Map();
 
-export function closeSolve() { if (panel) { panel.remove(); panel = null; state = null; } const ed = document.getElementById('editor'); if (ed) ed.classList.remove('solving'); }
+let onClosed = null; // the editor's hook, e.g. to remove the Solve box from the page
+
+export function closeSolve() {
+  if (panel) { panel.remove(); panel = null; state = null; }
+  const ed = document.getElementById('editor'); if (ed) ed.classList.remove('solving');
+  const cb = onClosed; onClosed = null; if (cb) cb();
+}
 
 const looksMath = (t) => /[0-9a-z]/i.test(t) && /[=+\-*/^<>()]|\d[a-z]/i.test(t);
 
 export async function openSolve(ctx) {
   closeSolve();
+  onClosed = ctx.onClose || null;
   const ed = document.getElementById('editor');
   panel = h(`<aside id="solve" aria-label="Solve">
     <div class="solve-head"><b style="display:flex;align-items:center;gap:8px;font-size:20px;letter-spacing:-.02em">${I.spark(20)} Solve</b>
@@ -45,11 +52,11 @@ export async function openSolve(ctx) {
   panel.querySelectorAll('[data-task]').forEach(b => b.onclick = () => { state.task = b.dataset.task; markTask(); run({ expr: inp.value, raw: inp.value, source: state.source || 'typed', task: state.task }); });
   warmEngine();
 
-  if (!ctx.sel) { setHint('Lasso a problem on the page, or type one above.'); inp.focus(); return; }
+  if (!ctx.sel) { setHint('Tap Solve and drag a box over a problem, or type one above.'); inp.focus(); return; }
   // 1) printed text from the PDF: instant, no AI
   const txt = ctx.text();
   const keys = await hasKeys();
-  if (txt && looksMath(txt) && !ctx.hasInk()) {
+  if (txt && looksMath(txt) && (!ctx.hasInk() || ctx.preferText)) {
     const lines = txt.split('\n');
     const mathLine = lines.filter(looksMath).sort((a, b) => (b.match(/[=<>]/) ? 1 : 0) - (a.match(/[=<>]/) ? 1 : 0))[0] || txt;
     const task = detectTask(txt);
