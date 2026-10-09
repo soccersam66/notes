@@ -10,7 +10,10 @@ const cache = new Map();
 
 let onClosed = null; // the editor's hook, e.g. to remove the Solve box from the page
 
+let popRO = null;
+
 export function closeSolve() {
+  if (popRO) { popRO.disconnect(); popRO = null; }
   if (panel) { panel.remove(); panel = null; state = null; }
   const ed = document.getElementById('editor'); if (ed) ed.classList.remove('solving');
   const cb = onClosed; onClosed = null; if (cb) cb();
@@ -22,9 +25,11 @@ export async function openSolve(ctx) {
   closeSolve();
   onClosed = ctx.onClose || null;
   const ed = document.getElementById('editor');
-  panel = h(`<aside id="solve" aria-label="Solve">
+  const pop = typeof ctx.anchor === 'function'; // a box Solve: small answer card next to the box
+  panel = h(`<aside id="solve" class="${pop ? 'pop' : ''}" aria-label="Solve">
     <div class="solve-head"><b style="display:flex;align-items:center;gap:8px;font-size:20px;letter-spacing:-.02em">${I.spark(20)} Solve</b>
-      <button class="icon soft press" id="sClose" aria-label="Close" style="width:34px;height:34px">${I.close()}</button></div>
+      <div class="row" style="gap:6px"><button class="btn sm press" id="sMore">Details</button>
+      <button class="icon soft press" id="sClose" aria-label="Close" style="width:34px;height:34px">${I.close()}</button></div></div>
     <div class="solve-body">
       <div class="read">
         <span class="eyebrow" id="sSrc">Problem</span>
@@ -36,13 +41,26 @@ export async function openSolve(ctx) {
     </div></aside>`);
   ed.appendChild(panel);
   ed.classList.add('solving');
-  // slide the page left just enough to stay visible next to the panel
-  const pg = ed.querySelector('.page');
-  if (pg && window.innerWidth >= 900) {
-    const r = pg.getBoundingClientRect(), panelLeft = window.innerWidth - 16 - 410;
-    const shift = Math.min(Math.max(0, r.left - 16), Math.max(0, r.right - panelLeft + 16));
-    ed.style.setProperty('--solve-shift', -shift + 'px');
-  }
+  const shiftPage = () => {
+    // slide the page left just enough to stay visible next to the panel
+    const pg = ed.querySelector('.page');
+    if (pg && window.innerWidth >= 900) {
+      const r = pg.getBoundingClientRect(), panelLeft = window.innerWidth - 16 - 410;
+      const shift = Math.min(Math.max(0, r.left - 16), Math.max(0, r.right - panelLeft + 16));
+      ed.style.setProperty('--solve-shift', -shift + 'px');
+    }
+  };
+  if (pop) {
+    ed.style.setProperty('--solve-shift', '0px');
+    const place = () => placePop(panel, ctx.anchor());
+    place();
+    if (window.ResizeObserver) { popRO = new ResizeObserver(place); popRO.observe(panel); }
+  } else shiftPage();
+  panel.querySelector('#sMore').onclick = () => {
+    if (popRO) { popRO.disconnect(); popRO = null; }
+    panel.classList.remove('pop'); panel.style.left = ''; panel.style.top = '';
+    shiftPage();
+  };
   state = { ctx, task: null, raw: '', t0: Date.now(), source: '' };
   panel.querySelector('#sClose').onclick = closeSolve;
   const inp = panel.querySelector('#sIn');
@@ -53,6 +71,7 @@ export async function openSolve(ctx) {
   warmEngine();
 
   if (!ctx.sel) { setHint('Tap Solve and drag a box over a problem, or type one above.'); inp.focus(); return; }
+  if (pop) setSrc('Reading the box...', true);
   // 1) printed text from the PDF: instant, no AI
   const txt = ctx.text();
   const keys = await hasKeys();
@@ -87,6 +106,20 @@ export async function openSolve(ctx) {
     setHint(ctx.hasInk() ? 'To read handwriting, add Gemini keys in Settings. For now, type the problem above.' : 'Type the problem above.');
     if (!txt) inp.focus();
   }
+}
+
+// Put the answer card beside the box (right, else left, else below or above), inside the screen.
+function placePop(el, r) {
+  if (!el || !r || window.innerWidth < 760) return; // phones: CSS makes it a small bottom sheet
+  const pw = el.offsetWidth, ph = el.offsetHeight, W = window.innerWidth, H = window.innerHeight, g = 14;
+  const clampY = (y) => Math.max(76, Math.min(H - ph - 12, y));
+  const clampX = (x) => Math.max(12, Math.min(W - pw - 12, x));
+  let left, top;
+  if (r.right + g + pw <= W - 12) { left = r.right + g; top = clampY(r.top); }
+  else if (r.left - g - pw >= 12) { left = r.left - g - pw; top = clampY(r.top); }
+  else if (r.bottom + g + ph <= H - 12) { left = clampX(r.left); top = r.bottom + g; }
+  else { left = clampX(r.left); top = clampY(r.top - g - ph); }
+  el.style.left = left + 'px'; el.style.top = top + 'px';
 }
 
 function setSrc(t, busy) { if (!panel) return; panel.querySelector('#sSrc').innerHTML = (busy ? '<span class="spinner" style="width:12px;height:12px;vertical-align:-1px;margin-right:6px"></span>' : '') + esc(t); }

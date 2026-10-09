@@ -617,6 +617,12 @@ function finishBox(d, cancelled) {
   const ctx = solveCtx({ page: d.id, strokes, box: a, area: a });
   ctx.preferText = true; // printed PDF text inside the box wins, even if there is ink on top
   ctx.onClose = () => { if (st && st.box === box) { st.box = null; redraw(box.page); } };
+  // where the box is on screen right now, so the answer card can sit next to it
+  ctx.anchor = () => {
+    const mm = st && st.mounted.get(box.page); if (!mm) return null;
+    const r = mm.el.getBoundingClientRect(), k = mm.cssScale;
+    return { left: r.left + a.x * k, top: r.top + a.y * k, right: r.left + (a.x + a.w) * k, bottom: r.top + (a.y + a.h) * k };
+  };
   openSolve(ctx);
 }
 
