@@ -176,6 +176,13 @@ h2.h2{margin:0;font-size:22px;font-weight:800;letter-spacing:-.02em}
 .lasso-menu{position:absolute;z-index:6;display:flex;gap:4px;padding:5px;border-radius:999px}
 .lasso-menu button{height:40px;padding:0 14px;border-radius:999px;font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px}
 .lasso-menu button.acc{background:var(--acc);color:var(--on)}
+#editor.boxing .page{touch-action:none;cursor:crosshair}
+#editor.boxing .zoom-pill{display:none}
+#edSolve.on{transform:scale(.96)}
+.box-pill{position:absolute;left:50%;bottom:calc(22px + var(--safe-bottom));transform:translateX(-50%);display:flex;align-items:center;gap:4px;padding:5px 5px 5px 16px;border-radius:999px;z-index:7;font-size:14px;font-weight:700;white-space:nowrap;animation:pillIn .5s var(--spring) both}
+.box-pill button{height:38px;padding:0 14px;border-radius:999px;font-size:14px;font-weight:700}
+.box-pill button.acc{background:var(--acc);color:var(--on)}
+@keyframes pillIn{from{opacity:0;transform:translate(-50%,20px) scale(.9)}to{opacity:1;transform:translate(-50%,0)}}
 .zoom-pill{position:absolute;left:50%;bottom:calc(22px + var(--safe-bottom));transform:translateX(-50%);display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;z-index:5;font-size:13px;font-weight:700}
 .zoom-pill button{width:38px;height:38px;border-radius:99px;display:flex;align-items:center;justify-content:center}
 .zoom-pill span{min-width:56px;text-align:center}
@@ -215,5 +222,6 @@ h2.h2{margin:0;font-size:22px;font-weight:800;letter-spacing:-.02em}
   #solve{left:8px;right:8px;width:auto;top:auto;height:72%;bottom:8px}
   .ed-title .t2{display:none}
   .ed-top{flex-wrap:wrap}
+  #scroller{padding-top:calc(186px + var(--safe-top))}
   .opts{grid-template-columns:repeat(2,minmax(0,1fr))}
 }

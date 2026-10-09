@@ -1,5 +1,5 @@
 // Offline support: the whole app (including the 7.5 MB math engine) is cached after the first visit.
-const VERSION = 'notes-v1.0.0';
+const VERSION = 'notes-v1.1.0';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/ui.js', 'js/icons.js', 'js/db.js', 'js/store.js', 'js/editor.js', 'js/pdfimport.js',

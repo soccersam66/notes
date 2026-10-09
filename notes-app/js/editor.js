@@ -38,7 +38,7 @@ export async function openEditor(notebookId, pageId, { onClose } = {}) {
     mounted: new Map(),   // pageId -> {el, canvas, ctx, img, url}
     inkCache: new Map(),  // pageId -> strokes[]
     dirty: new Set(), thumbsDirty: new Set(),
-    undo: [], redo: [], drawing: null, sel: null, current: pageId || (pages[0] && pages[0].id)
+    undo: [], redo: [], drawing: null, sel: null, boxMode: false, box: null, current: pageId || (pages[0] && pages[0].id)
   };
   build();
   document.body.style.overflow = 'hidden';
@@ -101,7 +101,7 @@ function build() {
   ED.querySelector('#redoBtn').onclick = redo;
   ED.querySelector('#edAdd').onclick = () => newPageSheet(st.nb.id, st.current, async (p) => { await reloadPages(); scrollToPage(p.id); });
   ED.querySelector('#edMore').onclick = (e) => moreMenu(e.currentTarget);
-  ED.querySelector('#edSolve').onclick = () => openSolve(solveCtx(null));
+  ED.querySelector('#edSolve').onclick = () => (st.boxMode ? exitBoxMode() : enterBoxMode());
   ED.querySelector('#zIn').onclick = () => setZoom(st.zoom * 1.25);
   ED.querySelector('#zOut').onclick = () => setZoom(st.zoom / 1.25);
   ED.querySelector('#edPdf').onchange = async (e) => {
@@ -114,15 +114,19 @@ function build() {
   const blockStylus = (e) => {
     const t = e.touches && e.touches[0];
     if (!t) return;
+    // box mode: no scrolling while a box is being dragged on a page
+    if (st.drawing && st.drawing.mode === 'box') { e.preventDefault(); return; }
+    if (st.boxMode && e.target.closest && e.target.closest('.page')) { e.preventDefault(); return; }
     if (t.touchType === 'stylus' || (st.settings.fingerDraw && e.touches.length === 1 && st.tool !== null)) e.preventDefault();
   };
   sc.addEventListener('touchstart', blockStylus, { passive: false });
   sc.addEventListener('touchmove', blockStylus, { passive: false });
   // Pinch to zoom (Safari gesture events)
-  let z0 = 1;
-  sc.addEventListener('gesturestart', (e) => { e.preventDefault(); z0 = st.zoom; });
-  sc.addEventListener('gesturechange', (e) => { e.preventDefault(); const pg = ED.querySelector('#pages'); pg.style.transform = `scale(${Math.max(.5, Math.min(3, z0 * e.scale)) / st.zoom})`; });
-  sc.addEventListener('gestureend', (e) => { e.preventDefault(); ED.querySelector('#pages').style.transform = ''; setZoom(z0 * e.scale); });
+  // (off in box mode so a two-finger touch never zooms while dragging a box)
+  let z0 = 1, pinch = false;
+  sc.addEventListener('gesturestart', (e) => { e.preventDefault(); pinch = !st.boxMode; z0 = st.zoom; });
+  sc.addEventListener('gesturechange', (e) => { e.preventDefault(); if (!pinch) return; const pg = ED.querySelector('#pages'); pg.style.transform = `scale(${Math.max(.5, Math.min(3, z0 * e.scale)) / st.zoom})`; });
+  sc.addEventListener('gestureend', (e) => { e.preventDefault(); if (!pinch) return; pinch = false; ED.querySelector('#pages').style.transform = ''; setZoom(z0 * e.scale); });
   sc.addEventListener('scroll', onScroll, { passive: true });
   st.onResize = () => layout(true);
   window.addEventListener('resize', st.onResize);
@@ -311,6 +315,7 @@ function redraw(id) {
   // highlighter under pen
   strokes.forEach(s => { if (s.t === 'hi') paintStroke(ctx, s, scale); });
   strokes.forEach(s => { if (s.t !== 'hi') paintStroke(ctx, s, scale); });
+  if (st.box && st.box.page === id) drawBox(m, st.box.area);
   if (st.sel && st.sel.page === id) drawSelection(m);
 }
 function liveCanvas(m) {
@@ -335,6 +340,15 @@ function toPage(e, id) {
 
 function onDown(e, id) {
   if (!st || !st.mounted.get(id) || !st.mounted.get(id).ctx) return;
+  if (st.boxMode) {
+    // Pencil or finger both drag the box; ignore extra fingers while one box is going
+    e.preventDefault();
+    if (st.drawing) return;
+    el(e).setPointerCapture(e.pointerId);
+    const [x, y] = toPage(e, id);
+    st.drawing = { mode: 'box', id, pid: e.pointerId, x0: x, y0: y, x1: x, y1: y };
+    return;
+  }
   // a finger (or Pencil) on an active selection moves it
   if (st.sel && st.sel.page === id) {
     const [x, y] = toPage(e, id);
@@ -379,6 +393,12 @@ function onMove(e, id) {
     lctx.beginPath();
     for (let i = 0; i < d.pts.length; i += 2) lctx[i ? 'lineTo' : 'moveTo'](d.pts[i] * m.scale, d.pts[i + 1] * m.scale);
     lctx.stroke(); lctx.restore();
+  } else if (d.mode === 'box') {
+    const [x, y] = toPage(e, id);
+    d.x1 = x; d.y1 = y;
+    const lctx = liveCanvas(m);
+    lctx.clearRect(0, 0, m.live.width, m.live.height);
+    drawBox({ ctx: lctx, scale: m.scale }, rectOf(d));
   } else if (d.mode === 'move') {
     const [x, y] = toPage(e, id);
     d.dx = x - d.x0; d.dy = y - d.y0;
@@ -407,6 +427,8 @@ function onUp(e, id, cancelled) {
     if (d.removed.length) { pushUndo({ page: d.id, type: 'remove', strokes: d.removed }); changed(d.id, false); }
   } else if (d.mode === 'lasso') {
     finishLasso(d);
+  } else if (d.mode === 'box') {
+    finishBox(d, cancelled);
   } else if (d.mode === 'move') {
     if (Math.abs(d.dx) + Math.abs(d.dy) > 0.5) {
       moveStrokes(st.sel.strokes, d.dx, d.dy);
@@ -521,6 +543,70 @@ function showLassoMenu() {
   menuEl.querySelector('[data-a="x"]').onclick = clearSelection;
 }
 
+// ---------------- box Solve ----------------
+// Tap Solve, drag a box over a problem (Pencil or finger), lift: the Solve panel opens for what is inside.
+function enterBoxMode() {
+  clearSelection();
+  st.boxMode = true;
+  ED.classList.add('boxing');
+  ED.querySelector('#edSolve').classList.add('on');
+  const pill = h(`<div class="box-pill glass" role="status"><span>Drag a box over a problem</span>
+    <button data-a="type">Type</button><button class="acc" data-a="x">Cancel</button></div>`);
+  ED.appendChild(pill);
+  pill.querySelector('[data-a="x"]').onclick = exitBoxMode;
+  pill.querySelector('[data-a="type"]').onclick = () => { exitBoxMode(); openSolve(solveCtx(null)); };
+}
+function exitBoxMode() {
+  if (!st) return;
+  if (st.drawing && st.drawing.mode === 'box') {
+    const m = st.mounted.get(st.drawing.id);
+    if (m && m.live) m.lctx.clearRect(0, 0, m.live.width, m.live.height);
+    st.drawing = null;
+  }
+  st.boxMode = false;
+  ED.classList.remove('boxing');
+  ED.querySelector('#edSolve').classList.remove('on');
+  const pill = ED.querySelector('.box-pill'); if (pill) pill.remove();
+}
+function rectOf(d) {
+  const p = st.pages.find(x => x.id === d.id);
+  const cl = (v, max) => Math.max(0, Math.min(max, v));
+  const x0 = cl(Math.min(d.x0, d.x1), p.w), x1 = cl(Math.max(d.x0, d.x1), p.w);
+  const y0 = cl(Math.min(d.y0, d.y1), p.h), y1 = cl(Math.max(d.y0, d.y1), p.h);
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+function drawBox({ ctx, scale }, a) {
+  const acc = getComputedStyle(document.documentElement).getPropertyValue('--acc').trim() || '#111111';
+  ctx.save();
+  ctx.fillStyle = acc; ctx.globalAlpha = 0.1;
+  ctx.fillRect(a.x * scale, a.y * scale, a.w * scale, a.h * scale);
+  ctx.globalAlpha = 1; ctx.strokeStyle = acc;
+  const k = window.devicePixelRatio || 1;
+  ctx.lineWidth = 2 * k; ctx.setLineDash([8 * k, 6 * k]);
+  ctx.strokeRect(a.x * scale, a.y * scale, a.w * scale, a.h * scale);
+  ctx.restore();
+}
+function finishBox(d, cancelled) {
+  const a = rectOf(d);
+  const m = st.mounted.get(d.id);
+  // a tiny box is an accidental tap: leave box mode without solving
+  const css = m ? m.cssScale : 1;
+  if (cancelled || a.w * css < 14 || a.h * css < 14) { exitBoxMode(); if (!cancelled) toast('Box too small, Solve cancelled'); return; }
+  exitBoxMode();
+  const strokes = (st.inkCache.get(d.id) || []).filter(s => {
+    const b = bbox(s), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+    return cx >= a.x && cx <= a.x + a.w && cy >= a.y && cy <= a.y + a.h;
+  });
+  const box = { page: d.id, area: a };
+  if (st.box && st.box.page !== d.id) { const old = st.box.page; st.box = null; redraw(old); }
+  st.box = box;
+  redraw(d.id);
+  const ctx = solveCtx({ page: d.id, strokes, box: a, area: a });
+  ctx.preferText = true; // printed PDF text inside the box wins, even if there is ink on top
+  ctx.onClose = () => { if (st && st.box === box) { st.box = null; redraw(box.page); } };
+  openSolve(ctx);
+}
+
 // ---------------- undo ----------------
 function pushUndo(op) { st.undo.push(op); if (st.undo.length > 200) st.undo.shift(); st.redo = []; refreshToolbar(); }
 function apply(op, reverse) {
@@ -600,7 +686,7 @@ function solveCtx(sel) {
   const page = sel ? st.pages.find(p => p.id === sel.page) : st.pages.find(p => p.id === st.current);
   return {
     page, sel, cls: st.cls, nb: st.nb,
-    // problem image (paper + PDF + your ink) inside the lasso, as base64 JPEG
+    // problem image (paper + PDF + your ink) inside the lasso or box, as base64 JPEG
     async image() {
       if (!sel) return null;
       const a = sel.area, pad = 8;
@@ -609,7 +695,8 @@ function solveCtx(sel) {
       const c = document.createElement('canvas'); c.width = Math.round(w * scale); c.height = Math.round(hh * scale);
       const ctx = c.getContext('2d');
       ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
-      if (page.paper === 'pdf') {
+      if (page.paper !== 'pdf') drawPaper(ctx, page, scale, x * scale, y * scale, c.width, c.height);
+      else {
         const r = await db.get('renders', page.id);
         if (r) { const bmp = await createImageBitmap(r.blob); const k = bmp.width / page.w; ctx.drawImage(bmp, x * k, y * k, w * k, hh * k, 0, 0, c.width, c.height); bmp.close && bmp.close(); }
       }
@@ -623,7 +710,7 @@ function solveCtx(sel) {
       ctx.restore();
       return c.toDataURL('image/jpeg', 0.85).split(',')[1];
     },
-    // printed text inside the lasso (teacher's PDF), no AI needed
+    // printed text inside the lasso or box (teacher's PDF), no AI needed
     text() {
       if (!sel || !page.text || !page.text.length) return '';
       const a = sel.area;

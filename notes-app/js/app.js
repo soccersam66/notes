@@ -281,8 +281,6 @@ export function newPageSheet(notebookId, afterId, onCreated) {
 // ---------- Settings ----------
 async function openSettings() {
   const est = await usage();
-  const keys = settings.keys || [];
-  const keyInfo = keys.length ? `${keys.length} key${keys.length > 1 ? 's' : ''} saved (ending ${keys.map(k => k.slice(-4)).slice(0, 4).join(', ')}${keys.length > 4 ? '...' : ''})` : 'No keys yet. Solve still works for most problems without AI.';
   const close = sheet(`<h3>Settings</h3>
     <div class="setrow"><span style="font-weight:600">Your name</span><input id="sName" value="${esc(settings.name)}" style="max-width:200px;height:40px;padding:8px 12px"></div>
     <div class="setrow"><span style="font-weight:600">Accent</span><div class="swatches">${['#111111', '#2F5BEA', '#18794A'].map(c => `<button data-acc="${c}" class="${settings.accent.toUpperCase() === c ? 'on' : ''}" style="background:${c}" aria-label="Accent ${c}"></button>`).join('')}</div></div>
@@ -290,14 +288,16 @@ async function openSettings() {
     <div class="setrow"><div><div style="font-weight:600">Draw with finger</div><div class="sub" style="font-size:13px">Off means only the Pencil writes, fingers scroll</div></div><button class="toggle ${settings.fingerDraw ? 'on' : ''}" id="sFinger" aria-label="Draw with finger"><i></i></button></div>
     <div class="field" style="padding-top:8px"><label>Gemini API keys, one per line (used only to read handwriting and word problems)</label>
       <textarea id="sKeys" rows="3" placeholder="Paste keys here" data-noautofocus="1" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
-      <span class="sub" style="font-size:13px">${esc(keyInfo)} Keys stay on this iPad only. Leave the box empty to keep the saved ones.</span></div>
+      <span class="sub" style="font-size:13px" id="sKeyInfo">${esc(keyInfo(settings.keys))} Keys stay on this iPad only. Leave the box empty to keep the saved ones.</span>
+      <button class="btn sm press" id="sKeyFile" style="align-self:flex-start">Import keys from file</button></div>
     <div class="field"><label>Gemini models, in order (fastest first)</label><input id="sModels" value="${esc((settings.models || S.DEFAULT_MODELS).join(', '))}" data-noautofocus="1"></div>
     <div class="setrow"><div><div style="font-weight:600">Math engine</div><div class="sub" style="font-size:13px" id="engState">${engineLabel()}</div></div></div>
     <div class="setrow"><div><div style="font-weight:600">Backup</div><div class="sub" style="font-size:13px">Saves everything to one file. Keep a copy in Google Drive.</div></div>
       <div class="row"><button class="btn sm press" id="bImport">Restore</button><button class="btn sm acc press" id="bExport">Back up</button></div></div>
     <div class="sub" style="font-size:12px">${est ? `Using ${(est.usage / 1048576).toFixed(1)} MB on this iPad. ` : ''}Math engine: Giac (GeoGebra build, GPL-3). PDF reading: pdf.js. Ink smoothing: perfect-freehand.</div>
     <button class="btn big acc press" id="sDone">Done</button>
-    <input type="file" id="bFile" accept=".json,application/json" class="hide">`, (el, close) => {
+    <input type="file" id="bFile" accept=".json,application/json" class="hide">
+    <input type="file" id="kFile" accept=".txt,text/plain" class="hide">`, (el, close) => {
     moveIndicator(el.querySelector('#sTheme'));
     el.querySelectorAll('[data-acc]').forEach(b => b.onclick = async () => { settings = await S.saveSettings({ accent: b.dataset.acc }); applyTheme(settings); el.querySelectorAll('[data-acc]').forEach(x => x.classList.toggle('on', x === b)); });
     el.querySelectorAll('[data-theme]').forEach(b => b.onclick = async () => { settings = await S.saveSettings({ theme: b.dataset.theme }); applyTheme(settings); el.querySelectorAll('[data-theme]').forEach(x => x.classList.toggle('on', x === b)); moveIndicator(el.querySelector('#sTheme')); });
@@ -310,6 +310,19 @@ async function openSettings() {
       if (!(await confirmSheet({ title: 'Restore this backup?', body: 'It replaces everything currently in the app.', ok: 'Restore' }))) return;
       try { await importBackup(f); toast('Restored'); setTimeout(() => location.reload(), 800); } catch (err) { toast('That file is not a Notes backup'); }
     };
+    el.querySelector('#sKeyFile').onclick = () => el.querySelector('#kFile').click();
+    el.querySelector('#kFile').onchange = async (e) => {
+      const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+      let found;
+      try { found = parseKeyFile(await f.text()); } catch (err) { toast('Could not read that file'); return; }
+      if (!found.length) { toast('No keys found in that file'); return; }
+      const before = settings.keys || [];
+      const keys = Array.from(new Set(before.concat(found)));
+      settings = await S.saveSettings({ keys });
+      const added = keys.length - before.length;
+      el.querySelector('#sKeyInfo').textContent = `${keyInfo(keys)} Keys stay on this iPad only. Leave the box empty to keep the saved ones.`;
+      toast(`${added} new key${added === 1 ? '' : 's'}. ${keyInfo(keys)}`, 3500);
+    };
     el.querySelector('#sDone').onclick = async () => {
       const keysText = el.querySelector('#sKeys').value.trim();
       const patch = { name: el.querySelector('#sName').value.trim() || 'there', models: el.querySelector('#sModels').value.split(/[,\s]+/).filter(Boolean) };
@@ -319,6 +332,21 @@ async function openSettings() {
       if (keysText) toast(`${patch.keys.length} key${patch.keys.length === 1 ? '' : 's'} saved`);
     };
   });
+}
+// Only ever show the last 4 characters of a key.
+function keyInfo(keys) {
+  keys = keys || [];
+  if (!keys.length) return 'No keys yet. Solve still works for most problems without AI.';
+  return `${keys.length} key${keys.length > 1 ? 's' : ''} saved (ending ${keys.map(k => k.slice(-4)).slice(0, 4).join(', ')}${keys.length > 4 ? '...' : ''}).`;
+}
+// One key per line; blank lines, spaces and repeats are ignored, and so are lines that are not key-shaped (like a heading).
+export function parseKeyFile(text) {
+  const out = [];
+  for (const line of String(text).replace(/^\uFEFF/, '').split(/\r?\n|\r/)) {
+    const k = line.replace(/\s+/g, '');
+    if (k.length >= 20 && /^[A-Za-z0-9_-]+$/.test(k) && !out.includes(k)) out.push(k);
+  }
+  return out;
 }
 function engineLabel() {
   return { off: 'Not loaded yet', loading: 'Loading (first time takes a few seconds)...', ready: 'Ready, works offline', error: 'Could not load: ' + engineState.error }[engineState.status];
