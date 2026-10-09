@@ -113,6 +113,12 @@ h2.h2{margin:0;font-size:22px;font-weight:800;letter-spacing:-.02em}
 .pg .thumb .sw{position:absolute;inset:0;border:0;border-radius:0}
 .pg .thumb.wide img{height:auto;object-fit:contain;box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .pg .thumb .num{position:absolute;left:8px;bottom:8px;font-size:11px;font-weight:700;padding:3px 7px;border-radius:99px;background:var(--glass);color:var(--sub)}
+.pages-grid{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.pages-grid img{-webkit-user-drag:none;pointer-events:none}
+.pg.pg-hole .thumb{opacity:.25;border-style:dashed}
+.pg-ghost{position:fixed;z-index:95;margin:0;pointer-events:none;transform:scale(1.06);transition:transform .35s var(--spring)}
+.pg-ghost .thumb{box-shadow:var(--shadowStrong)}
+.pick-nb{width:100%;justify-content:flex-start;gap:10px}
 .pg.add .thumb{border:2px dashed var(--line);background:transparent;display:flex;align-items:center;justify-content:center;color:var(--sub)}
 .mistake{display:flex;align-items:center;gap:18px;padding:18px 0;border-bottom:1px solid var(--line)}
 .mistake:last-child{border-bottom:0}
@@ -221,6 +227,7 @@ h2.h2{margin:0;font-size:22px;font-weight:800;letter-spacing:-.02em}
   .week{gap:4px}.wd span{width:34px;height:34px;font-size:13px}
   #solve{left:8px;right:8px;width:auto;top:auto;height:72%;bottom:8px}
   .ed-title .t2{display:none}
+  .pages-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
   .ed-top{flex-wrap:wrap}
   #scroller{padding-top:calc(186px + var(--safe-top))}
   .opts{grid-template-columns:repeat(2,minmax(0,1fr))}

@@ -5,7 +5,7 @@ import { $, h, toast, menu, confirmSheet, askText, I, esc } from './ui.js';
 import { getStroke } from '../vendor/pf/perfect-freehand.js';
 import { renderPdfPageBlob, importPdfFile } from './pdfimport.js';
 import { openSolve, closeSolve } from './solve.js';
-import { newPageSheet } from './app.js';
+import { newPageSheet, pickNotebook } from './app.js';
 
 const ED = $('#editor');
 let st = null; // editor state
@@ -153,6 +153,14 @@ function moreMenu(anchor) {
   if (p && p.paper !== 'pdf') {
     items.push({ label: 'Change paper of this page', icon: I.file(), run: () => changePaper(p) });
   }
+  if (p) items.push({ label: 'Move page to notebook', icon: I.move(18), run: async () => {
+    const to = await pickNotebook(st.nb.id); if (!to || !st) return;
+    await flushAll();
+    await S.movePageToNotebook(p.id, to.id);
+    st.inkCache.delete(p.id);
+    await reloadPages();
+    toast('Moved to ' + to.name);
+  } });
   items.push('hr',
     { label: 'Clear writing on this page', icon: I.eraser(18), danger: true, run: async () => { if (await confirmSheet({ title: 'Clear this page?', body: 'Removes all your writing on it. You can undo right after.', ok: 'Clear' })) { const strokes = st.inkCache.get(p.id) || []; pushUndo({ page: p.id, type: 'remove', strokes: strokes.slice() }); st.inkCache.set(p.id, []); changed(p.id); } } },
     { label: 'Delete this page', icon: I.trash(), danger: true, run: async () => { if (await confirmSheet({ title: 'Delete this page?', body: 'The page and its writing are deleted.' })) { await S.deletePage(p.id); st.inkCache.delete(p.id); if (!(await S.listPages(st.nb.id)).length) await S.createPage(st.nb.id, { paper: st.settings.defaultPaper || 'graph' }); await reloadPages(); toast('Page deleted'); } } });
