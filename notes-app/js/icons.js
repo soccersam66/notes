@@ -12,6 +12,7 @@ export const I = {
   pen: (w = 20) => s('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>', w),
   hi: (w = 20) => s('<path d="M9 14l-4 4v2h6l2-2"/><path d="M9 14l7-9 4 4-9 7z"/>', w),
   eraser: (w = 20) => s('<path d="M7 20h10"/><path d="M4.5 15.5l9-9a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L12 18H7z"/>', w),
+  shapes: (w = 20) => s('<circle cx="8.5" cy="8.5" r="5"/><rect x="11" y="11" width="9" height="9" rx="1.5"/>', w),
   lasso: (w = 20) => s('<ellipse cx="12" cy="10" rx="8" ry="6" stroke-dasharray="3 3"/><path d="M8 15c-1 2-1 4 1 5"/>', w),
   undo: (w = 20) => s('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>', w),
   redo: (w = 20) => s('<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>', w),

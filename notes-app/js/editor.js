@@ -7,6 +7,7 @@ import { renderPdfPageBlob, importPdfFile } from './pdfimport.js';
 import { openSolve, closeSolve } from './solve.js';
 import { newPageSheet, pickNotebook } from './app.js';
 import { exportPage, exportNotebook } from './export.js';
+import { straightLine, cleanShape, lineFrom } from './shapes.js';
 
 const ED = $('#editor');
 let st = null; // editor state
@@ -35,7 +36,7 @@ export async function openEditor(notebookId, pageId, { onClose } = {}) {
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
   st = {
     nb, cls, pages, settings, onClose, dark,
-    tool: 'pen', color: 0, size: 1, zoom: 1, baseW: 0,
+    tool: 'pen', color: 0, size: 1, zoom: 1, baseW: 0, shapes: !!settings.shapes,
     mounted: new Map(),   // pageId -> {el, canvas, ctx, img, url}
     inkCache: new Map(),  // pageId -> strokes[]
     dirty: new Set(), thumbsDirty: new Set(),
@@ -77,6 +78,7 @@ function build() {
         <button class="tool" data-tool="hi" aria-label="Highlighter">${I.hi()}</button>
         <button class="tool" data-tool="eraser" aria-label="Eraser">${I.eraser()}</button>
         <button class="tool" data-tool="lasso" aria-label="Lasso">${I.lasso()}</button>
+        <button class="tool" id="shapesBtn" aria-label="Shapes">${I.shapes()}</button>
         <div class="sep"></div>
         ${inkColors().map((c, i) => `<button class="ink-sw" data-color="${i}" style="color:${c}" aria-label="Ink colour ${i + 1}"><i style="background:${c}"></i></button>`).join('')}
         <div class="sep"></div>
@@ -98,6 +100,11 @@ function build() {
   ED.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
   ED.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { st.color = +b.dataset.color; if (st.tool === 'eraser' || st.tool === 'lasso') setTool('pen'); refreshToolbar(); });
   ED.querySelectorAll('[data-size]').forEach(b => b.onclick = () => { st.size = +b.dataset.size; refreshToolbar(); });
+  ED.querySelector('#shapesBtn').onclick = async () => {
+    st.shapes = !st.shapes; refreshToolbar();
+    st.settings = await S.saveSettings({ shapes: st.shapes });
+    toast(st.shapes ? 'Shapes on: rough circles and boxes become clean' : 'Shapes off');
+  };
   ED.querySelector('#undoBtn').onclick = undo;
   ED.querySelector('#redoBtn').onclick = redo;
   ED.querySelector('#edAdd').onclick = () => newPageSheet(st.nb.id, st.current, async (p) => { await reloadPages(); scrollToPage(p.id); });
@@ -140,6 +147,7 @@ function refreshToolbar() {
   ED.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === st.tool));
   ED.querySelectorAll('[data-color]').forEach(b => b.classList.toggle('on', +b.dataset.color === st.color && st.tool !== 'eraser' && st.tool !== 'lasso'));
   ED.querySelectorAll('[data-size]').forEach(b => b.classList.toggle('on', +b.dataset.size === st.size));
+  ED.querySelector('#shapesBtn').classList.toggle('on', st.shapes);
   ED.querySelector('#undoBtn').disabled = !st.undo.length;
   ED.querySelector('#redoBtn').disabled = !st.redo.length;
 }
@@ -300,7 +308,8 @@ function strokePath(s, scale) {
   const hasP = s.pr;
   const size = s.s * scale * (s.t === 'hi' ? 4.2 : 1.6);
   const outline = getStroke(pts, s.t === 'hi'
-    ? { size, thinning: 0, smoothing: 0.5, streamline: 0.4, simulatePressure: false, last: true, start: { cap: false }, end: { cap: false } }
+    ? { size, thinning: 0, smoothing: 0.5, streamline: s.sh ? 0 : 0.4, simulatePressure: false, last: true, start: { cap: false }, end: { cap: false } }
+    : s.sh ? { size: size * 0.6, thinning: 0, smoothing: 0.4, streamline: 0, simulatePressure: false, last: true } // cleaned line or shape: even width
     : { size, thinning: 0.55, smoothing: 0.55, streamline: 0.42, simulatePressure: !hasP, last: true });
   const path = new Path2D();
   if (!outline.length) return path;
@@ -381,7 +390,31 @@ function onDown(e, id) {
   const pt = toPage(e, id);
   if (st.tool === 'eraser') { st.drawing = { mode: 'erase', id, removed: [], pid: e.pointerId }; eraseAt(id, pt); return; }
   if (st.tool === 'lasso') { clearSelection(); st.drawing = { mode: 'lasso', id, pts: [pt[0], pt[1]], pid: e.pointerId }; return; }
-  st.drawing = { mode: 'ink', id, pid: e.pointerId, stroke: { id: S_uid(), t: st.tool === 'hi' ? 'hi' : 'pen', c: KEYS[st.color], s: SIZES[st.size], pr: e.pointerType === 'pen', p: pt.slice() } };
+  st.drawing = { mode: 'ink', id, pid: e.pointerId, stroke: { id: S_uid(), t: st.tool === 'hi' ? 'hi' : 'pen', c: KEYS[st.color], s: SIZES[st.size], pr: e.pointerType === 'pen', p: pt.slice() }, hx: pt[0], hy: pt[1] };
+  armHold(st.drawing);
+}
+
+// ---------------- hold to straighten / clean shapes ----------------
+const HOLD_MS = 500, HOLD_SLOP = 3; // page units the pen may wobble while "still"
+function armHold(d) {
+  clearTimeout(d.holdTimer);
+  d.holdTimer = setTimeout(() => holdFired(d), HOLD_MS);
+}
+function holdFired(d) {
+  if (!st || st.drawing !== d || d.snapped) return;
+  const shape = st.shapes ? cleanShape(d.stroke.p) : null;
+  if (shape) { d.stroke.p = shape.p; d.stroke.sh = 1; d.snapped = 'shape'; }
+  else {
+    const line = straightLine(d.stroke.p); if (!line) return;
+    d.stroke.p = line; d.stroke.sh = 1; d.snapped = 'line'; d.ax = line[0]; d.ay = line[1];
+  }
+  paintLive(d);
+}
+function paintLive(d) {
+  const m = st.mounted.get(d.id); if (!m) return;
+  const lctx = liveCanvas(m);
+  lctx.clearRect(0, 0, m.live.width, m.live.height);
+  paintStroke(lctx, d.stroke, m.scale);
 }
 const el = (e) => e.currentTarget;
 function S_uid() { return Math.random().toString(36).slice(2, 10); }
@@ -392,10 +425,12 @@ function onMove(e, id) {
   const evs = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
   const m = st.mounted.get(id); if (!m) return;
   if (d.mode === 'ink') {
+    if (d.snapped === 'shape') return; // a cleaned shape stays put until the pen lifts
+    if (d.snapped === 'line') { const p = toPage(e, id); d.stroke.p = lineFrom(d.ax, d.ay, p[0], p[1]); paintLive(d); return; } // drag the line's end
     for (const ev of evs) { const p = toPage(ev, id); d.stroke.p.push(p[0], p[1], p[2]); }
-    const lctx = liveCanvas(m);
-    lctx.clearRect(0, 0, m.live.width, m.live.height);
-    paintStroke(lctx, d.stroke, m.scale);
+    const last = d.stroke.p.length - 3;
+    if (Math.hypot(d.stroke.p[last] - d.hx, d.stroke.p[last + 1] - d.hy) > HOLD_SLOP) { d.hx = d.stroke.p[last]; d.hy = d.stroke.p[last + 1]; armHold(d); }
+    paintLive(d);
   } else if (d.mode === 'erase') {
     for (const ev of evs) eraseAt(id, toPage(ev, id));
   } else if (d.mode === 'lasso') {
@@ -430,7 +465,9 @@ function onUp(e, id, cancelled) {
   const m = st.mounted.get(d.id);
   if (m && m.live) m.lctx.clearRect(0, 0, m.live.width, m.live.height);
   if (d.mode === 'ink') {
+    clearTimeout(d.holdTimer);
     if (cancelled || d.stroke.p.length < 3) return;
+    if (!d.snapped && st.shapes) { const shape = cleanShape(d.stroke.p); if (shape) { d.stroke.p = shape.p; d.stroke.sh = 1; } }
     if (d.stroke.p.length === 3) d.stroke.p.push(d.stroke.p[0] + 0.3, d.stroke.p[1] + 0.3, d.stroke.p[2]);
     const arr = st.inkCache.get(d.id) || []; arr.push(d.stroke); st.inkCache.set(d.id, arr);
     pushUndo({ page: d.id, type: 'add', strokes: [d.stroke] });
@@ -658,7 +695,7 @@ function changed(id, doRedraw = true) {
 async function flushInk() {
   if (!st) return;
   const ids = Array.from(st.dirty); st.dirty.clear();
-  for (const id of ids) await S.saveInk(id, (st.inkCache.get(id) || []).map(s => ({ id: s.id, t: s.t, c: s.c, s: s.s, pr: s.pr, p: s.p })));
+  for (const id of ids) await S.saveInk(id, (st.inkCache.get(id) || []).map(s => ({ id: s.id, t: s.t, c: s.c, s: s.s, pr: s.pr, sh: s.sh, p: s.p })));
   if (ids.length) S.markActive();
 }
 async function flushAll() {

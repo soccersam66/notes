@@ -25,11 +25,12 @@ Sam's personal class-notes web app for his iPad. Hosted on GitHub Pages from `ma
 - `js/pdfimport.js`: pdf.js import, stores page text boxes (for Solve without AI) and renders pages to cached JPEGs.
 - `js/app.js` Settings also has "Import keys from file" (`parseKeyFile`): reads a .txt, one key per line, merges into IndexedDB settings, shows only the last 4 characters. Never log keys.
 - `js/store.js` / `js/db.js`: IndexedDB (classes, notebooks, pages, ink, pdfs, renders, todos, notes, mistakes, meta).
+- `js/shapes.js`: pure stroke clean-up. Hold the pen still ~0.5 s at the end of a roughly straight stroke and it snaps to a straight line (keep moving to drag its end). With the toolbar Shapes toggle on (saved in settings), closed rough circles, ellipses and rectangles become clean ones (on hold or on lift). Cleaned strokes carry `sh: 1` and draw at an even width. Tests: `node notes-app/test/shapes.test.mjs`.
 - `js/export.js`: PDF export of a page or notebook (editor More menu, notebook menu, page menu). Own tiny PDF writer, one JPEG per page (1440 px wide, light colours even in dark mode, Letter-size pages at 0.75 pt per page unit). Pages are drawn one at a time and their canvases freed. The share sheet opens from a "PDF ready" sheet because Safari only allows `navigator.share` straight from a tap.
 - `js/backup.js`: one-file JSON backup (never includes keys).
 
 ## Tests
-- Math engine: `node notes-app/test/engine.test.mjs` (must stay 27/27 or better; add cases for anything you change). NOTE: as of Oct 2026 the `notes-app/test/` folder is NOT in the repo (it was never committed). If it is still missing, tell Sam instead of inventing a test suite.
+- Math engine: `node notes-app/test/engine.test.mjs` (must stay 27/27 or better; add cases for anything you change). NOTE: as of Oct 2026 `engine.test.mjs` is NOT in the repo (it was never committed); `notes-app/test/` only has `shapes.test.mjs`. If it is still missing, tell Sam instead of inventing a test suite.
 - UI: if Playwright/Chromium is available, serve the repo root (`python3 -m http.server`) and open `http://localhost:8000/notes-app/`; test at 1080x810 (iPad landscape) and 390x844 (iPhone).
 
 ## Roadmap
