@@ -7,7 +7,7 @@ let keyIdx = Math.floor(Math.random() * 1000);
 
 export async function hasKeys() { const s = await getSettings(); return !!(s.keys && s.keys.length); }
 
-async function attempt(model, parts, keys, signal) {
+async function attempt(model, parts, keys, signal, temperature = 0) {
   let lastErr = 'busy';
   for (let k = 0; k < Math.min(3, keys.length); k++) {
     const key = keys[(keyIdx++) % keys.length];
@@ -16,7 +16,7 @@ async function attempt(model, parts, keys, signal) {
       res = await fetch(API + encodeURIComponent(model) + ':generateContent', {
         method: 'POST', signal,
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } })
+        body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature } })
       });
     } catch (e) { if (signal.aborted) throw e; lastErr = 'network'; continue; }
     if (res.status === 429) { lastErr = 'rate limit'; continue; }      // that key is out for now, try another
@@ -28,7 +28,7 @@ async function attempt(model, parts, keys, signal) {
   throw new Error(lastErr);
 }
 
-export async function askGemini(parts, { stagger = 3000, total = 25000 } = {}) {
+export async function askGemini(parts, { stagger = 3000, total = 25000, temperature = 0 } = {}) {
   const s = await getSettings();
   const keys = s.keys || [];
   if (!keys.length) throw new Error('no keys');
@@ -41,7 +41,7 @@ export async function askGemini(parts, { stagger = 3000, total = 25000 } = {}) {
       if (done || launched >= models.length) return;
       const model = models[launched++];
       const c = new AbortController(); ctrls.push(c);
-      attempt(model, parts, keys, c.signal)
+      attempt(model, parts, keys, c.signal, temperature)
         .then(json => finish(resolve, { json, model, ms: Date.now() - t0 }))
         .catch(e => { if (done) return; errs.push(model + ': ' + e.message); failed++; if (launched < models.length) launch(); else if (failed >= launched) finish(reject, new Error(errs.join('; '))); });
     };
@@ -77,4 +77,9 @@ Problem: ${problem}
 The correct answer (already checked by a math engine, do not change it): ${answer}
 Return JSON only: {"steps":[{"k":"what to do in a few words","m":"the math for that step in plain text"}]}. Use ^ for powers and sqrt() for roots. No LaTeX.` }];
   return askGemini(parts, { stagger: 4000, total: 30000 });
+}
+
+// New practice problems like a saved mistake (a little randomness so each round is different).
+export async function makePractice(prompt) {
+  return askGemini([{ text: prompt }], { stagger: 4000, total: 30000, temperature: 0.9 });
 }

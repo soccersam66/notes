@@ -197,7 +197,7 @@ async function run(p) {
   out.querySelector('#sMistake').onclick = async (ev) => {
     const e = { currentTarget: ev.currentTarget };
     const c = state.ctx;
-    await addMistake({ classId: c.nb.classId, notebookId: c.nb.id, pageId: c.page && c.page.id, problem: p.problemText || p.expr, answer: res.plain });
+    await addMistake({ classId: c.nb.classId, notebookId: c.nb.id, pageId: c.page && c.page.id, problem: p.problemText || p.expr, answer: res.plain, task, expr: p.expr });
     e.currentTarget.textContent = 'Saved to Mistakes'; e.currentTarget.disabled = true;
   };
   return true;

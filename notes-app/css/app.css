@@ -138,6 +138,27 @@ mark{background:#FFE38A;color:inherit;border-radius:4px;padding:0 1px}
 .pg.add .thumb{border:2px dashed var(--line);background:transparent;display:flex;align-items:center;justify-content:center;color:var(--sub)}
 .mistake{display:flex;align-items:center;gap:18px;padding:18px 0;border-bottom:1px solid var(--line)}
 .mistake:last-child{border-bottom:0}
+.m-acts{display:flex;gap:8px;flex-shrink:0}
+/* Practice sheet */
+.practice{display:flex;flex-direction:column;gap:14px}
+.practice > *{flex-shrink:0}
+.pr-load{display:flex;align-items:flex-start;gap:14px;padding:18px 4px}
+.pr-load .spinner{margin-top:2px;flex-shrink:0}
+.pr-dots{display:flex;gap:6px}
+.pr-dots i{flex:1;height:5px;border-radius:99px;background:var(--line);transition:background .3s}
+.pr-dots i.now{background:var(--sub)}.pr-dots i.ok{background:var(--ok)}.pr-dots i.bad{background:var(--bad)}
+.pr-q{font-size:24px;line-height:1.3;padding:14px 16px;border-radius:20px;background:var(--soft);animation:rise .5s var(--spring) both}
+.practice input{font-family:Georgia,"Times New Roman",serif;font-size:20px;height:52px}
+.practice input:disabled{opacity:.7}
+.pr-ans{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:18px;border:1px solid var(--line);animation:rise .5s var(--spring) both}
+.pr-ans b.math{font-size:22px}
+.pr-score{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;animation:rise .55s var(--spring) both}
+.pr-score b{font-size:40px;font-weight:800;letter-spacing:-.03em}
+.pr-list{display:flex;flex-direction:column}
+.pr-row{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+.pr-row:last-child{border-bottom:0}
+.pr-mark{width:24px;height:24px;border-radius:99px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;margin-top:2px}
+.pr-mark.ok{background:var(--ok)}.pr-mark.bad{background:var(--bad)}
 
 /* Sheets */
 .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:80;display:flex;align-items:flex-end;justify-content:center;padding:20px 20px calc(30px + var(--safe-bottom));animation:fade .25s ease both}
@@ -266,6 +287,8 @@ mark{background:#FFE38A;color:inherit;border-radius:4px;padding:0 1px}
   .pages-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
   .opts{grid-template-columns:repeat(2,minmax(0,1fr))}
   .mistake{flex-wrap:wrap;gap:10px 18px}
+  .m-acts{width:100%}.m-acts .btn{flex:1}
+  .pr-q{font-size:21px}
   /* sheets: full width, tall ones scroll inside the visible screen */
   .backdrop{padding:8px calc(8px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left))}
   .sheet{border-radius:28px;padding:16px 18px 18px;max-height:calc(100vh - 24px - var(--safe-top) - var(--safe-bottom));max-height:calc(100dvh - 24px - var(--safe-top) - var(--safe-bottom))}

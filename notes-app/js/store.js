@@ -114,6 +114,16 @@ export async function listNotes() { return (await db.all('notes')).sort((a, b) =
 export async function addNote(text) { const n = { id: uid(), text, created: now() }; await db.put('notes', n); return n; }
 export async function listMistakes(classId) { return (await db.byIndex('mistakes', 'classId', classId)).sort((a, b) => b.created - a.created); }
 export async function addMistake(m) { const x = { id: uid(), created: now(), ...m }; await db.put('mistakes', x); return x; }
+export async function getMistake(id) { return db.get('mistakes', id); }
+// One practice round is kept on its mistake (the last 20 rounds); saved again after every answer.
+export async function savePractice(mistakeId, round) {
+  const m = await getMistake(mistakeId); if (!m) return null;
+  const list = (m.practice || []).filter(r => r.id !== round.id);
+  list.push(round);
+  m.practice = list.slice(-20);
+  await db.put('mistakes', m);
+  return m;
+}
 
 // ---------- activity + streak (school days only, one freeze per week) ----------
 const dayKey = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
