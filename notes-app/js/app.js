@@ -8,6 +8,7 @@ import { exportBackup, importBackup } from './backup.js';
 import { warmEngine, engineState, onEngineState } from './engine.js';
 import { enablePageDrag } from './pagegrid.js';
 import { exportPage, exportNotebook } from './export.js';
+import { openPractice } from './practicesheet.js';
 
 const view = $('#view');
 let settings;
@@ -277,9 +278,10 @@ async function renderClass(id, tab) {
   if (tab === 'mistakes') {
     body.innerHTML = `<div class="card rise" style="padding:8px 24px;margin-top:16px">${mistakes.map(m => `
       <div class="mistake"><div class="grow"><div class="math">${esc(m.problem)}</div><div class="sub" style="font-size:14px;margin-top:4px">Answer: ${esc(m.answer || '')}${m.note ? ', ' + esc(m.note) : ''}</div>
-      <div class="sub" style="font-size:12px;margin-top:4px">${new Date(m.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div></div>
-      ${m.notebookId ? `<button class="btn sm press" data-goto="${m.notebookId}/${m.pageId || ''}">Open page</button>` : ''}</div>`).join('') || '<p class="sub" style="padding:18px 0;margin:0">No mistakes saved yet. In Solve, tap "Save to Mistakes" on anything you got wrong, and it shows up here to review before quizzes.</p>'}</div>`;
+      <div class="sub" style="font-size:12px;margin-top:4px">${new Date(m.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${practiceLine(m)}</div></div>
+      <div class="m-acts">${m.notebookId ? `<button class="btn sm press" data-goto="${m.notebookId}/${m.pageId || ''}">Open page</button>` : ''}<button class="btn sm acc press" data-practice="${m.id}">${I.spark(16)} Practice</button></div></div>`).join('') || '<p class="sub" style="padding:18px 0;margin:0">No mistakes saved yet. In Solve, tap "Save to Mistakes" on anything you got wrong, and it shows up here to review before quizzes. Then tap Practice for new problems like it.</p>'}</div>`;
     body.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => go('#/nb/' + b.dataset.goto));
+    body.querySelectorAll('[data-practice]').forEach(b => b.onclick = () => openPractice(mistakes.find(x => x.id === b.dataset.practice), () => { if (location.hash.endsWith('/mistakes')) renderClass(id, tab); }));
     return;
   }
   body.innerHTML = nbs.map((nb, i) => `
@@ -317,6 +319,13 @@ async function renderClass(id, tab) {
       { label: 'Delete notebook', icon: I.trash(), danger: true, run: async () => { if (await confirmSheet({ title: `Delete ${nb.name}?`, body: 'All its pages and writing will be deleted.' })) { await S.deleteNotebook(nb.id); renderClass(id, tab); } } }
     ]);
   });
+}
+
+// "Practiced 2 times, last 4 of 5 right" under a mistake
+function practiceLine(m) {
+  const list = m.practice || []; if (!list.length) return '';
+  const last = list[list.length - 1];
+  return `. Practiced ${list.length === 1 ? 'once' : list.length + ' times'}, last ${last.right || 0} of ${last.total || 0} right`;
 }
 
 // Page menu in the notebook grid (long-press a page and let go).
