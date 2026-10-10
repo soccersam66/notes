@@ -244,7 +244,7 @@ async function renderClass(id, tab) {
       </div>
     </div>
     <div class="rise d1" style="display:flex;align-items:flex-end;justify-content:space-between;margin:16px 0 4px;gap:12px;flex-wrap:wrap">
-      <div><h1 class="title" style="font-size:44px">${esc(c.name)}</h1><span class="sub" style="font-size:15px">${nbs.length} notebook${nbs.length === 1 ? '' : 's'}, ${(n => n + ' page' + (n === 1 ? '' : 's'))(pagesBy.reduce((a, p) => a + p.length, 0))}</span></div>
+      <div><h1 class="title class-title" style="font-size:44px">${esc(c.name)}</h1><span class="sub" style="font-size:15px">${nbs.length} notebook${nbs.length === 1 ? '' : 's'}, ${(n => n + ' page' + (n === 1 ? '' : 's'))(pagesBy.reduce((a, p) => a + p.length, 0))}</span></div>
       <div class="seg" id="seg"><div class="ind"></div><button data-tab="notebooks" class="${tab !== 'mistakes' ? 'on' : ''}">Notebooks</button><button data-tab="mistakes" class="${tab === 'mistakes' ? 'on' : ''}">Mistakes</button></div>
     </div>
     <div id="classBody"></div>

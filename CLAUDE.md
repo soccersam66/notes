@@ -14,6 +14,12 @@ Sam's personal class-notes web app for his iPad. Hosted on GitHub Pages from `ma
 - Free tiers only (spending freeze). No paid services.
 - Editor memory rules (from the Oct 2026 60-page check): `mount()` is async, so after every `await` in it check `st.mounted.get(id) === m` before creating anything (a canvas made after unmount is never freed; this once leaked 850 MB). PDF pages render one at a time through the queue in `pageBgBlob()`. Grid thumbnails are made only when the editor is idle (`scheduleThumbs`), never during scroll. A fresh canvas is not cleared (`redraw(id, true)`).
 
+## Merging PRs (Sam's standing rule, Oct 2026)
+- When a PR's tests all pass (every `notes-app/test/*.test.mjs`) and its screenshots at 1080x810 and 390x844 look right, merge it into `main` yourself with a **squash merge**. Then tell Sam in plain words what changed and how to try it on the iPad.
+- Only merge **outside school hours**, because a merge to `main` updates the live app on Sam's iPad within minutes. Sam has not given exact hours or a time zone yet. Until he does, count weekends as outside school hours, and on weekdays merge only before 7:00 or after 16:00 US Eastern time. Ask him if a holiday or his schedule is unclear.
+- Leave a PR open if it needs a decision from Sam, and tell him why. Optional follow-up questions that do not change what the PR ships do not block a merge, but repeat them when you report the merge.
+- Merge stacked PRs in order. After the lower one is squash-merged, rebase the next branch onto the new `main` before merging it.
+
 ## Layout (all inside `notes-app/`)
 - `notes-app/index.html`, `notes-app/manifest.webmanifest`, `notes-app/sw.js` (offline cache; bump `VERSION` whenever any cached file changes, and add new files to `CORE`; `CORE` paths are relative to `notes-app/`). Install fetches with `cache: 'reload'` so an update never stores stale copies. Settings shows the running version (the cache name). `js/app.js` reloads the app once when a new service worker takes over, so an update shows on the first launch after a deploy.
 - `js/app.js`: router (`#/today`, `#/classes`, `#/class/<id>/<tab>`, `#/nb/<notebookId>/<pageId>`), Today, Classes, Settings, new-page sheet.
