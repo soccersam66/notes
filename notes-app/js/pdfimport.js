@@ -24,7 +24,8 @@ async function loadDoc(pdfId) {
   return docs.get(pdfId);
 }
 
-export async function importPdfFile(file, classId, progress = () => {}, notebookId = null) {
+// opts.afterId: put the pages right after that page (in order) instead of at the end; opts.onPage(page) for each new page
+export async function importPdfFile(file, classId, progress = () => {}, notebookId = null, opts = {}) {
   try {
     const L = await pdfjs();
     progress('Reading ' + file.name + '...');
@@ -34,6 +35,7 @@ export async function importPdfFile(file, classId, progress = () => {}, notebook
     const doc = await L.getDocument({ data, isEvalSupported: false }).promise;
     let nb = notebookId ? await S.getNotebook(notebookId) : null;
     if (!nb) nb = await S.createNotebook(classId, file.name.replace(/\.pdf$/i, ''));
+    let after = opts.afterId || null;
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
       const vp = page.getViewport({ scale: 1 });
@@ -46,7 +48,9 @@ export async function importPdfFile(file, classId, progress = () => {}, notebook
         const fh = Math.hypot(tx[2], tx[3]);
         text.push({ s: it.str, x: +(tx[4] * k).toFixed(1), y: +((tx[5] - fh) * k).toFixed(1), w: +((it.width || fh * it.str.length * 0.5) * k).toFixed(1), h: +(fh * k).toFixed(1) });
       }
-      await S.createPage(nb.id, { paper: 'pdf', atEnd: true, extra: { pdfId, pdfPage: i, w: S.PAGE_W, h: Math.round(vp.height * k), text } });
+      const pg = await S.createPage(nb.id, { paper: 'pdf', afterId: after, atEnd: !after, extra: { pdfId, pdfPage: i, w: S.PAGE_W, h: Math.round(vp.height * k), text } });
+      if (after) after = pg.id;
+      if (opts.onPage) opts.onPage(pg);
       if (i % 5 === 0) progress(`Imported ${i} of ${doc.numPages} pages...`);
       page.cleanup();
     }

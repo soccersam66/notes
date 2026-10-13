@@ -84,7 +84,7 @@ export async function exportNotebook(notebookId) {
 
 // Safari only allows the share sheet straight from a tap, and making the PDF takes a moment,
 // so the finished file waits on a sheet with its own Share button.
-function shareSheet(file) {
+export function shareSheet(file) {
   const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
   sheet(`<h3>PDF ready</h3>
     <div class="row" style="gap:12px"><span class="mono">${I.file(20)}</span><div style="min-width:0"><div class="ellip" style="font-weight:700">${esc(file.name)}</div><div class="sub" style="font-size:13px">${(file.size / 1048576).toFixed(1)} MB. Save to Files or Google Drive, or turn it in.</div></div></div>

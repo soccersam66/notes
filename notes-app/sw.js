@@ -1,10 +1,10 @@
 // Offline support: the whole app (including the 7.5 MB math engine) is cached after the first visit.
-const VERSION = 'notes-v1.14.0';
+const VERSION = 'notes-v1.15.0';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/ui.js', 'js/icons.js', 'js/db.js', 'js/store.js', 'js/editor.js', 'js/pdfimport.js',
-  'js/solve.js', 'js/gemini.js', 'js/backup.js', 'js/engine.js', 'js/engine-worker.js', 'js/mathengine.js', 'js/pagegrid.js', 'js/export.js', 'js/shapes.js', 'js/search.js', 'js/triangle.js', 'js/practice.js', 'js/practicesheet.js', 'js/scan.js', 'js/scanner.js', 'js/pull.js',
-  'vendor/pf/perfect-freehand.js', 'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js',
+  'js/solve.js', 'js/gemini.js', 'js/backup.js', 'js/engine.js', 'js/engine-worker.js', 'js/mathengine.js', 'js/pagegrid.js', 'js/export.js', 'js/shapes.js', 'js/search.js', 'js/triangle.js', 'js/practice.js', 'js/practicesheet.js', 'js/scan.js', 'js/scanner.js', 'js/pull.js', 'js/ttf.js', 'js/docbuild.js', 'js/rebuild.js',
+  'vendor/pf/perfect-freehand.js', 'vendor/fonts/DejaVuSans-notes.ttf', 'vendor/fonts/DejaVuSans-Bold-notes.ttf', 'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js',
   'vendor/giac/giac.glue.js', 'vendor/giac/giac.wasm',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'
 ];
