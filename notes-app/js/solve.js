@@ -125,7 +125,8 @@ export async function openSolve(ctx) {
 function placePop(el, r) {
   if (!el || !r || window.innerWidth < 760) return; // phones: CSS makes it a small bottom sheet
   const pw = el.offsetWidth, ph = el.offsetHeight, W = window.innerWidth, H = window.innerHeight, g = 14;
-  const clampY = (y) => Math.max(76, Math.min(H - ph - 12, y));
+  const bar = document.querySelector('.ed-top'), minY = bar ? bar.getBoundingClientRect().bottom + 10 : 76; // below the toolbar (two rows in portrait)
+  const clampY = (y) => Math.max(minY, Math.min(H - ph - 12, y));
   const clampX = (x) => Math.max(12, Math.min(W - pw - 12, x));
   let left, top;
   if (r.right + g + pw <= W - 12) { left = r.right + g; top = clampY(r.top); }

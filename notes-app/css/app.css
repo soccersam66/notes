@@ -299,6 +299,23 @@ mark{background:#FFE38A;color:inherit;border-radius:4px;padding:0 1px}
 #scan .btn.acc{background:#F5F5F7;color:#111113}
 .np-scan{width:100%}
 
+/* iPad held upright (portrait) and other in-between widths */
+@media (min-width:761px) and (max-width:1023px){
+  /* Today: "Continue" across the top, To do and Quick notes side by side, classes below */
+  .today-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .today-grid > :nth-child(1){grid-column:1/-1}
+  .today-grid > :nth-child(2){grid-column:1;grid-row:2}
+  .today-grid > :nth-child(4){grid-column:2;grid-row:2}
+  .today-grid > :nth-child(3){grid-column:1/-1;grid-row:3}
+  /* editor: back, title and actions on top, the whole toolbar centred under them */
+  .ed-top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
+  .ed-title{max-width:none}
+  .ed-title > div{min-width:0}
+  .toolbar{grid-column:1/-1;grid-row:2;justify-self:center}
+  #scroller{padding-top:calc(140px + var(--safe-top))}
+  #solve{top:calc(136px + var(--safe-top))}
+}
+
 /* Phone width */
 @media (max-width:760px){
   #app{padding:calc(12px + var(--safe-top)) calc(16px + var(--safe-right)) calc(110px + var(--safe-bottom)) calc(16px + var(--safe-left))}
