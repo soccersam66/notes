@@ -57,7 +57,7 @@ input:focus,textarea:focus{box-shadow:0 0 0 2px var(--acc)}
 .icon{width:44px;height:44px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .icon.card{background:var(--card);box-shadow:var(--shadow)}
 .icon.soft{background:var(--soft)}
-.chip{font-size:13px;font-weight:600;padding:5px 10px;border-radius:999px;background:var(--soft);display:inline-flex;align-items:center;gap:6px}
+.chip{white-space:nowrap;font-size:13px;font-weight:600;padding:5px 10px;border-radius:999px;background:var(--soft);display:inline-flex;align-items:center;gap:6px}
 .chip.acc{background:var(--accSoft);color:var(--accText)}
 
 /* Shell */
@@ -352,6 +352,8 @@ mark{background:#FFE38A;color:inherit;border-radius:4px;padding:0 1px}
   .btn.sm{height:40px}
   .searchbar .icon{width:40px;height:40px}
   .nb{padding:18px 16px 18px}
+  .nb .row.grow{flex-wrap:wrap;row-gap:6px}
+  .nb .row.grow .h2{flex-basis:100%;white-space:normal}
   .pages-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
   .opts{grid-template-columns:repeat(2,minmax(0,1fr))}
   .mistake{flex-wrap:wrap;gap:10px 18px}
