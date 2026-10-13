@@ -3,13 +3,14 @@ import { db, persist, usage } from './db.js';
 import { $, $$, h, toast, sheet, askText, confirmSheet, menu, applyTheme, moveIndicator, I, esc } from './ui.js';
 import { openEditor, closeEditor, editorOpen, itemsToText } from './editor.js';
 import { search, words, highlight } from './search.js';
-import { importFiles, hasBg, addImagePage } from './pdfimport.js';
+import { importFiles, hasBg, addImagePage, importPdfFile } from './pdfimport.js';
 import { exportBackup, importBackup } from './backup.js';
 import { warmEngine, engineState, onEngineState } from './engine.js';
 import { enablePageDrag } from './pagegrid.js';
 import { exportPage, exportNotebook, exportPages } from './export.js';
 import { openPractice } from './practicesheet.js';
 import { startScan } from './scanner.js';
+import { pullPrecalc, testPull, PULL_EVERY_MS } from './pull.js';
 
 const view = $('#view');
 let settings;
@@ -41,6 +42,27 @@ async function boot() {
   }
   // load the math engine in the background so the first Solve is instant
   setTimeout(() => warmEngine(), 1200);
+  // Precalc auto-pull: when the app opens or comes back, at most every 10 minutes
+  setTimeout(() => autoPull(), 2500);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(() => autoPull(), 1500); });
+}
+
+// ---------- Precalc auto-pull ----------
+async function autoPull() {
+  const st = await S.getPullState();
+  if (!st.url || !st.key || Date.now() - (st.lastTry || 0) < PULL_EVERY_MS) return;
+  runPull(false);
+}
+async function runPull(manual) {
+  if (manual) toast('Looking for new Precalc slides...', 60000);
+  const r = await pullPrecalc({ S, importPdf: (file, classId, nbId) => importPdfFile(file, classId, (m) => toast(m, 60000), nbId), progress: (m) => toast(m, 60000) });
+  const n = r.added ? r.added.length : 0;
+  const fails = r.failed && r.failed.length ? ` Could not get: ${r.failed.join(', ')}.` : '';
+  if (!r.ok) toast((n ? `${n} new Precalc slide${n > 1 ? 's' : ''} added, then: ` : '') + r.error, 6000);
+  else if (n) toast(`${n} new Precalc slide${n > 1 ? 's' : ''} added to ${r.notebook ? r.notebook.name : 'Precalc'}.` + fails, 5000);
+  else if (manual || fails) toast('No new Precalc slides.' + fails, 3500);
+  if (n && !editorOpen()) route(); // show them on the screen you are on
+  return r;
 }
 
 // ---------- router ----------
@@ -451,6 +473,11 @@ async function openSettings() {
       <span class="sub" style="font-size:13px" id="sKeyInfo">${esc(keyInfo(settings.keys))} Keys stay on this iPad only. Leave the box empty to keep the saved ones.</span>
       <button class="btn sm press" id="sKeyFile" style="align-self:flex-start">Import keys from file</button></div>
     <div class="field"><label>Gemini models, in order (fastest first)</label><input id="sModels" value="${esc((settings.models || S.DEFAULT_MODELS).join(', '))}" data-noautofocus="1"></div>
+    <div class="field" style="padding-top:8px" id="pullBox"><label>Precalc auto-pull: your Apps Script web app (stays on this iPad only)</label>
+      <input id="pullUrl" placeholder="Web app URL (https://script.google.com/macros/s/.../exec)" data-noautofocus="1" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url">
+      <div class="row"><input id="pullKey" placeholder="Key" data-noautofocus="1" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn sm press" id="pullMake" style="flex-shrink:0">Make a key</button></div>
+      <span class="sub" style="font-size:13px" id="pullInfo"></span>
+      <div class="row" style="flex-wrap:wrap"><button class="btn sm press" id="pullTest">Test connection</button><button class="btn sm acc press" id="pullNow">Pull new Precalc slides</button></div></div>
     <div class="setrow"><div><div style="font-weight:600">Math engine</div><div class="sub" style="font-size:13px" id="engState">${engineLabel()}</div></div></div>
     <div class="setrow"><div><div style="font-weight:600">Backup</div><div class="sub" style="font-size:13px">Saves everything to one file. Keep a copy in Google Drive.</div></div>
       <div class="row"><button class="btn sm press" id="bImport">Restore</button><button class="btn sm acc press" id="bExport">Back up</button></div></div>
@@ -472,6 +499,7 @@ async function openSettings() {
       if (!(await confirmSheet({ title: 'Restore this backup?', body: 'It replaces everything currently in the app.', ok: 'Restore' }))) return;
       try { await importBackup(f); toast('Restored'); setTimeout(() => location.reload(), 800); } catch (err) { toast('That file is not a Notes backup'); }
     };
+    setupPullSettings(el);
     el.querySelector('#sKeyFile').onclick = () => el.querySelector('#kFile').click();
     el.querySelector('#kFile').onchange = async (e) => {
       const f = e.target.files[0]; e.target.value = ''; if (!f) return;
@@ -495,6 +523,52 @@ async function openSettings() {
     };
   });
 }
+// Settings > Precalc auto-pull. The URL and key are saved as you type, only in this browser.
+async function setupPullSettings(el) {
+  const u = el.querySelector('#pullUrl'), k = el.querySelector('#pullKey'), info = el.querySelector('#pullInfo');
+  const st = await S.getPullState();
+  u.value = st.url || ''; k.value = st.key || '';
+  const when = (t) => t ? new Date(t).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'never';
+  const showInfo = (s) => { info.textContent = s.url && s.key ? `Checks when the app opens, at most every 10 minutes. Last pull: ${when(s.lastPulled)}.` : 'Paste the web app URL and the key from your Apps Script. The slides go into your Precalc class\'s current unit.'; };
+  showInfo(st);
+  const save = async () => showInfo(await S.savePullState({ url: u.value.trim(), key: k.value.trim() }));
+  u.addEventListener('change', save); k.addEventListener('change', save);
+  u.addEventListener('input', () => { clearTimeout(u._t); u._t = setTimeout(save, 400); });
+  k.addEventListener('input', () => { clearTimeout(k._t); k._t = setTimeout(save, 400); });
+  // a long random key, copied so it can be pasted into the script's Script Properties
+  el.querySelector('#pullMake').onclick = async () => {
+    if (k.value.trim() && !(await confirmSheet({ title: 'Make a new key?', body: 'The script must then get the new key too (Script Properties > KEY).', ok: 'Make new key', danger: false }))) return;
+    const a = new Uint8Array(24); crypto.getRandomValues(a);
+    k.value = Array.from(a, b => 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 56]).join('');
+    await save();
+    try { await navigator.clipboard.writeText(k.value); toast('New key copied. Paste it as KEY in Script Properties.', 4000); }
+    catch (e) { k.select(); toast('New key made. Copy it and paste it as KEY in Script Properties.', 4000); }
+  };
+  el.querySelector('#pullTest').onclick = async (e) => {
+    const b = e.currentTarget; await save(); b.disabled = true; const label = b.textContent; b.innerHTML = '<span class="spinner"></span>';
+    const r = await testPull({ url: u.value, key: k.value }, S);
+    b.disabled = false; b.textContent = label;
+    if (!r.ok) { toast(r.error, 6000); return; }
+    toast('Connected', 1200); // replaces an earlier error message
+    pullListSheet(r.data);
+  };
+  el.querySelector('#pullNow').onclick = async (e) => {
+    const b = e.currentTarget; await save(); b.disabled = true;
+    await runPull(true);
+    b.disabled = false; showInfo(await S.getPullState());
+  };
+}
+// What the web app sees (Test connection)
+function pullListSheet(d) {
+  const day = (t) => new Date(t).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const row = (f) => `<div class="setrow"><div style="min-width:0"><div class="ellip" style="font-weight:600">${esc(f.name)}</div><div class="sub" style="font-size:13px">${esc(f.owner || 'owner hidden')}, ${esc(day(f.modified))}</div></div></div>`;
+  sheet(`<h3>Connected</h3>
+    <p class="sub" style="margin:0">${d.files.length ? `It sees ${d.files.length} Precalc file${d.files.length > 1 ? 's' : ''} shared with you since ${esc(day(d.since))}.` : `It works, but sees no Precalc files shared with you since ${esc(day(d.since))}.`}</p>
+    <div>${d.files.slice(0, 20).map(row).join('')}</div>
+    ${d.othersCount ? `<div class="field"><label>Other shared slides and PDFs it skipped (${d.othersCount}): add the teacher's email to OWNERS in the script if these are Precalc</label><div>${(d.others || []).slice(0, 8).map(row).join('')}</div></div>` : ''}
+    <button class="btn big acc press" data-x>Done</button>`, (el, close) => { el.querySelector('[data-x]').onclick = close; });
+}
+
 // Only ever show the last 4 characters of a key.
 function keyInfo(keys) {
   keys = keys || [];

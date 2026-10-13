@@ -227,5 +227,15 @@ export async function ensureSeed() {
   await createPage(nb.id, { paper: 'graph' });
 }
 
+// ---------- Precalc auto-pull (URL and key stay in this browser only; see pull.js) ----------
+export async function getPullState() { return { url: '', key: '', lastPulled: 0, lastTry: 0, seen: {}, ...(await db.meta('pull', {})) }; }
+export async function savePullState(patch) { const s = { ...(await getPullState()), ...patch }; await db.setMeta('pull', s); return s; }
+// Where pulled slides go: the Precalc class's current unit (the class is made if missing).
+export async function precalcNotebook() {
+  let c = (await listClasses()).find(x => /pre[\s-]?calc/i.test(x.name || ''));
+  if (!c) c = await createClass('Precalc', 'f(x)');
+  return currentNotebook(c.id);
+}
+
 export async function lastPage() { return db.meta('lastPage', null); }
 export async function setLastPage(info) { return db.setMeta('lastPage', info); }
