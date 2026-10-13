@@ -1,5 +1,5 @@
 // Page scanning maths (find the sheet, flatten it, clean it): node notes-app/test/scan.test.mjs
-import { findQuad, refineQuad, shrinkQuad, toGray, boxBlur, orderQuad, quadAspect, trueAspect, homography, warp, enhance, outputSize, convexHull, polyArea, otsu, insetQuad } from '../js/scan.js';
+import { pageSignature, sigMatch, autoStep, taken, AUTO, findQuad, refineQuad, shrinkQuad, toGray, boxBlur, orderQuad, quadAspect, trueAspect, homography, warp, enhance, outputSize, convexHull, polyArea, otsu, insetQuad } from '../js/scan.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, info = '') => { cond ? pass++ : (fail++, console.log('FAIL', name, info)); };
@@ -190,6 +190,63 @@ ok('output size never too tall', outputSize([[0, 0], [100, 0], [100, 900], [0, 9
   ok('bw: paper white, ink black', bw[(20 * w + 200) * 4] > 245 && bw[(41 * w + 200) * 4] < 40, bw[(20 * w + 200) * 4] + ' ' + bw[(41 * w + 200) * 4]);
   const same = enhance(img.slice(), w, h, 'color');
   ok('color: left as photographed', same.every((v, i) => v === img[i]));
+}
+
+// auto capture: same page or a new one?
+{
+  const w = 360, hh = 480, q = [[60, 50], [300, 62], [318, 430], [42, 418]];
+  // two worksheet pages with the same layout (title, numbered lines) but different writing
+  const page = (seed) => (x, y) => {
+    if (y > 80 && y < 92 && x > 90 && x < 260) return true; // the same title on every page
+    const line = Math.floor(y / 30), r = ((line * 2654435761) ^ (seed * 40503)) >>> 0;
+    if (y % 30 < 20 || y % 30 > 25 || y < 110 || y > 400) return false;
+    const indent = 70 + (r % 40), len = 30 + ((r >>> 8) % 190);
+    return x > indent && x < indent + len && (Math.floor(x / 6) + (r >>> 4)) % 5 !== 0; // words with gaps
+  };
+  const shot = (seed, dq = [0, 0], light = 1) => {
+    const qq = q.map(([x, y]) => [x + dq[0], y + dq[1]]);
+    return { img: photo(w, hh, qq, { noise: 10, ink: page(seed), light: () => light }), qq };
+  };
+  const a1 = shot(1), a2 = shot(1, [2, -1], 0.85), b = shot(2), c = shot(3, [1, 1]);
+  const sa1 = pageSignature(a1.img, w, hh, a1.qq), sa2 = pageSignature(a2.img, w, hh, a2.qq), sb = pageSignature(b.img, w, hh, b.qq), sc = pageSignature(c.img, w, hh, c.qq);
+  ok('same page, moved and darker, matches', sigMatch(sa1, sa2) > AUTO.same, sigMatch(sa1, sa2).toFixed(3));
+  if (process.env.SIG) console.log('match same', sigMatch(sa1, sa2).toFixed(3), 'next', sigMatch(sa1, sb).toFixed(3), 'other', sigMatch(sb, sc).toFixed(3));
+  ok('a page with other writing looks different', sigMatch(sb, sc) < AUTO.same, sigMatch(sb, sc).toFixed(3));
+  // the shutter over time: page A held still -> one capture; still A -> no more; page B -> capture
+  const nq = (qq, k = 0) => qq.map(([x, y]) => [x / w + k, y / hh]);
+  const st = {}; let t = 0, caps = 0; const hints = [];
+  const feed = (det, n) => { for (let i = 0; i < n; i++) { const r = autoStep(st, det, t); t += 250; if (r.capture) caps++; hints.push(r.hint); } };
+  feed({ found: false }, 4);
+  ok('no page: no capture', caps === 0 && hints[hints.length - 1] === 'Point at a page');
+  feed({ found: true, quad: nq(a1.qq), sig: sa1 }, 3);
+  ok('page appears: hold still first', caps === 0 && hints[hints.length - 1] === 'Hold still');
+  feed({ found: true, quad: nq(a1.qq), sig: sa1 }, 4);
+  ok('held still about a second: captured once', caps === 1);
+  feed({ found: true, quad: nq(a2.qq), sig: sa2 }, 12);
+  ok('same page again: not captured twice', caps === 1 && hints[hints.length - 1] === 'Turn to the next page');
+  feed({ found: true, quad: nq(a1.qq), sig: sa1 }, 40);
+  ok('same page held for 10 s: still once', caps === 1);
+  feed({ found: false }, 2); // a hand turning the page
+  feed({ found: true, quad: nq(b.qq), sig: sb }, 8);
+  ok('next page after a hand passes: captured', caps === 2);
+  // two pages of one worksheet can look the same at preview size: turning the page is what counts
+  feed({ found: false }, 1); // only a flicker: not a page turn
+  feed({ found: true, quad: nq(b.qq), sig: sb }, 8);
+  ok('a one-frame flicker is not a page turn', caps === 2);
+  feed({ found: false }, 3);
+  feed({ found: true, quad: nq(b.qq), sig: sb }, 8);
+  ok('turned to a page that looks the same (same layout): captured', caps === 3);
+  // a page slid in quickly with no gap: it moved a lot, so it counts
+  feed({ found: true, quad: nq(c.qq, 0.12), sig: sb }, 8);
+  ok('page swapped by sliding (big jump): captured', caps === 4);
+  // the button takes a page: auto then waits for the next one too
+  const st3 = {}; taken(st3, { quad: nq(a1.qq), sig: sa1 }); let caps3 = 0;
+  for (let i = 0; i < 12; i++) if (autoStep(st3, { found: true, quad: nq(a1.qq), sig: sa1 }, i * 250).capture) caps3++;
+  ok('after the button, the same page is not taken again', caps3 === 0);
+  // shaking: the quad keeps moving, so it waits
+  const st2 = {}; let caps2 = 0;
+  for (let i = 0; i < 20; i++) { const r = autoStep(st2, { found: true, quad: nq(a1.qq, (i % 2) * 0.03), sig: sa1 }, i * 250); if (r.capture) caps2++; }
+  ok('a shaking camera never captures', caps2 === 0);
 }
 
 console.log(`${pass}/${pass + fail} passed`);
