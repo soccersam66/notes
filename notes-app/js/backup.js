@@ -11,7 +11,8 @@ export async function exportBackup() {
   for (const s of STORES) {
     let rows = await db.all(s);
     if (s === 'pdfs') rows = await Promise.all(rows.map(async r => ({ ...r, blob: undefined, b64: await toB64(r.blob), type: r.blob.type || 'application/pdf' })));
-    if (s === 'meta') rows = rows.map(r => r.key === 'settings' ? { ...r, value: { ...r.value, keys: [] } } : r); // never put API keys in a backup file
+    // never put API keys, or the auto-pull web app URL and key, in a backup file
+    if (s === 'meta') rows = rows.map(r => r.key === 'settings' ? { ...r, value: { ...r.value, keys: [] } } : r.key === 'pull' ? { ...r, value: { ...r.value, url: '', key: '' } } : r);
     out.data[s] = rows;
   }
   const name = `notes-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -27,11 +28,12 @@ export async function importBackup(file) {
   const j = JSON.parse(await file.text());
   if (j.app !== 'notes-app' || !j.data) throw new Error('not a backup');
   const keepKeys = ((await db.meta('settings', {})) || {}).keys || [];
+  const pull = (await db.meta('pull', {})) || {};
   for (const s of STORES) {
     await db.clear(s);
     let rows = j.data[s] || [];
     if (s === 'pdfs') rows = rows.map(r => ({ id: r.id, name: r.name, added: r.added, blob: fromB64(r.b64, r.type) }));
-    if (s === 'meta') rows = rows.map(r => r.key === 'settings' ? { ...r, value: { ...r.value, keys: keepKeys } } : r);
+    if (s === 'meta') rows = rows.map(r => r.key === 'settings' ? { ...r, value: { ...r.value, keys: keepKeys } } : r.key === 'pull' ? { ...r, value: { ...r.value, url: pull.url || '', key: pull.key || '' } } : r);
     if (rows.length) await db.putMany(s, rows);
   }
   await db.clear('renders');
