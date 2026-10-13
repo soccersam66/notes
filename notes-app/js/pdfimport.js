@@ -95,12 +95,18 @@ export async function importPhotoFile(file, notebookId) {
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
     ctx.drawImage(img, 0, 0, c.width, c.height); // Safari applies the photo's rotation (EXIF) for <img>
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.86));
-    const h = Math.round(S.PAGE_W * c.height / c.width);
+    const w = c.width, h = c.height;
     c.width = 0; c.height = 0;
-    const imgId = uid();
-    await db.put('pdfs', { id: imgId, name: file.name || 'Photo', blob, added: Date.now() });
-    return S.createPage(notebookId, { paper: 'photo', atEnd: true, extra: { imgId, w: S.PAGE_W, h: Math.min(h, S.PAGE_W * 4) } });
+    return addImagePage(blob, notebookId, { w, h, name: file.name || 'Photo' });
   } finally { URL.revokeObjectURL(url); }
+}
+
+// A JPEG (w x h pixels) becomes a photo page at the end of a notebook, or right after afterId.
+export async function addImagePage(blob, notebookId, { w, h, name = 'Photo', afterId = null, extra = {} } = {}) {
+  const imgId = uid();
+  await db.put('pdfs', { id: imgId, name, blob, added: Date.now() });
+  const ph = Math.min(Math.round(S.PAGE_W * h / w), S.PAGE_W * 4);
+  return S.createPage(notebookId, { paper: 'photo', afterId, atEnd: !afterId, extra: { imgId, w: S.PAGE_W, h: ph, ...extra } });
 }
 
 // Turn a photo page 90 degrees (right = clockwise). Ink turns with it, so it stays on the same spot of the photo.

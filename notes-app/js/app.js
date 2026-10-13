@@ -3,12 +3,13 @@ import { db, persist, usage } from './db.js';
 import { $, $$, h, toast, sheet, askText, confirmSheet, menu, applyTheme, moveIndicator, I, esc } from './ui.js';
 import { openEditor, closeEditor, editorOpen, itemsToText } from './editor.js';
 import { search, words, highlight } from './search.js';
-import { importFiles, hasBg } from './pdfimport.js';
+import { importFiles, hasBg, addImagePage } from './pdfimport.js';
 import { exportBackup, importBackup } from './backup.js';
 import { warmEngine, engineState, onEngineState } from './engine.js';
 import { enablePageDrag } from './pagegrid.js';
 import { exportPage, exportNotebook } from './export.js';
 import { openPractice } from './practicesheet.js';
+import { startScan } from './scanner.js';
 
 const view = $('#view');
 let settings;
@@ -239,8 +240,9 @@ async function renderClass(id, tab) {
     <div class="rise" style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:10px;flex-wrap:wrap">
       <button class="press" id="back" style="display:flex;align-items:center;gap:4px;font-size:17px;font-weight:600;color:var(--accText);padding:8px 4px">${I.back()} Classes</button>
       <div class="row">
+        <button class="btn card press" id="scanBtn">${I.scan()} Scan</button>
         <button class="btn card press" id="importPdf">${I.file()} Import</button>
-        <button class="btn acc press" id="nlm">${I.book()} ${c.notebookLM ? 'Open in NotebookLM' : 'Link NotebookLM'}</button>
+        <button class="btn acc press" id="nlm" aria-label="NotebookLM">${I.book()} <span class="lbl-wide">${c.notebookLM ? 'Open in NotebookLM' : 'Link NotebookLM'}</span></button>
         <button class="icon card press" id="classMore" aria-label="More">${I.more()}</button>
       </div>
     </div>
@@ -266,6 +268,14 @@ async function renderClass(id, tab) {
     { label: 'Delete class', icon: I.trash(), danger: true, run: async () => { if (await confirmSheet({ title: `Delete ${c.name}?`, body: 'Every notebook and page in it will be deleted. Make a backup first if unsure.' })) { await S.deleteClass(id); go('#/classes'); } } }
   ]);
   $('#importPdf').onclick = () => $('#pdfIn').click();
+  // scanned pages from the class screen go into a new "Scans" notebook
+  $('#scanBtn').onclick = () => startScan({ onSave: async (pages) => {
+    const nb = await S.createNotebook(id, 'Scans, ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    let first = null;
+    for (const p of pages) { const pg = await addImagePage(p.blob, nb.id, { w: p.w, h: p.h, name: 'Scan', extra: { scan: 1 } }); first = first || pg; }
+    toast(`Saved ${pages.length} scanned page${pages.length > 1 ? 's' : ''}`);
+    go(`#/nb/${nb.id}/${first.id}`);
+  } });
   $('#pdfIn').onchange = async (e) => {
     const files = Array.from(e.target.files || []); e.target.value = ''; if (!files.length) return;
     toast(files.length > 1 ? `Importing ${files.length} files...` : 'Importing...', 60000);
@@ -384,7 +394,18 @@ export function newPageSheet(notebookId, afterId, onCreated) {
   sheet(`<h3>New page</h3>
     <div class="opts">${S.PAPERS.map(p => `<button class="opt ${p.id === paper ? 'on' : ''}" data-paper="${p.id}">${paperSwatch(p.id)}${p.name}</button>`).join('')}</div>
     ${afterId ? `<div class="row"><button class="btn big grow press" data-where="after">After this page</button><button class="btn big acc grow press" data-where="end">At the end</button></div>`
-    : `<button class="btn big acc press" data-where="end">Create page</button>`}`, (el, close) => {
+    : `<button class="btn big acc press" data-where="end">Create page</button>`}
+    <button class="btn big press np-scan" data-scan>${I.scan()} Scan a paper page</button>`, (el, close) => {
+    // scanned pages go after this page (or at the end), in the order they were scanned
+    el.querySelector('[data-scan]').onclick = () => {
+      close();
+      startScan({ onSave: async (pages) => {
+        let after = afterId, first = null;
+        for (const p of pages) { const pg = await addImagePage(p.blob, notebookId, { w: p.w, h: p.h, name: 'Scan', afterId: after, extra: { scan: 1 } }); after = pg.id; first = first || pg; }
+        toast(`Saved ${pages.length} scanned page${pages.length > 1 ? 's' : ''}`);
+        if (onCreated) onCreated(first); else go(`#/nb/${notebookId}/${first.id}`);
+      } });
+    };
     el.querySelectorAll('[data-paper]').forEach(b => b.onclick = () => { paper = b.dataset.paper; el.querySelectorAll('[data-paper]').forEach(x => x.classList.toggle('on', x === b)); });
     el.querySelectorAll('[data-where]').forEach(b => b.onclick = async () => {
       const p = await S.createPage(notebookId, { paper, afterId: b.dataset.where === 'after' ? afterId : null, atEnd: b.dataset.where === 'end' });

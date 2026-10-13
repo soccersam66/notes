@@ -268,6 +268,37 @@ mark{background:#FFE38A;color:inherit;border-radius:4px;padding:0 1px}
 .math{font-family:Georgia,"Times New Roman",serif;font-size:19px;word-break:break-word}
 .speed{font-size:12px;color:var(--sub);font-weight:600;text-align:center}
 
+/* Scanner */
+#scan{position:fixed;inset:0;z-index:78;background:#0B0B0C;color:#F5F5F7;display:flex;flex-direction:column;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;animation:fade .25s ease both}
+.scan-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:calc(12px + var(--safe-top)) calc(16px + var(--safe-right)) 8px calc(16px + var(--safe-left))}
+.scan-title{font-size:17px;font-weight:700;text-align:center;flex:1}
+.scan-count{min-width:76px;text-align:right;font-size:13px;font-weight:600;color:#A1A1A8}
+.scan-glass{background:rgba(255,255,255,.14);color:#F5F5F7}
+.scan-stage{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px}
+.scan-wrap{position:relative;touch-action:none}
+.scan-photo{position:absolute;inset:0;width:100%;height:100%;border-radius:4px}
+.scan-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.scan-shade{fill:rgba(0,0,0,.5)}
+.scan-poly{fill:rgba(47,91,234,.12);stroke:#2F5BEA;stroke-width:2.5;stroke-linejoin:round}
+.scan-h{position:absolute;left:-26px;top:-26px;width:52px;height:52px;display:flex;align-items:center;justify-content:center;touch-action:none;cursor:grab}
+.scan-h i{width:24px;height:24px;border-radius:99px;background:rgba(255,255,255,.9);border:3px solid #2F5BEA;box-shadow:0 2px 10px rgba(0,0,0,.4);transition:transform .35s var(--spring)}
+.scan-h.on i{transform:scale(.6)}
+.scan-loupe{position:fixed;left:0;top:0;width:120px;height:120px;border-radius:999px;border:3px solid #fff;box-shadow:0 8px 30px rgba(0,0,0,.5);pointer-events:none;z-index:2}
+.scan-result{max-width:100%;max-height:100%;min-height:0;flex:1 1 auto;object-fit:contain;border-radius:6px;box-shadow:0 10px 40px rgba(0,0,0,.5);animation:rise .55s var(--spring) both;background:#fff}
+.scan-tray{display:flex;gap:8px;overflow-x:auto;max-width:100%;flex-shrink:0;padding:2px}
+.scan-tray img{height:64px;border-radius:4px;background:#fff;flex-shrink:0}
+.scan-bar{display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px calc(16px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(16px + var(--safe-left))}
+.scan-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.scan-btns .btn{height:48px}
+.scan-seg{background:rgba(255,255,255,.12)}
+.scan-seg .ind{background:rgba(255,255,255,.9)}
+.scan-seg button{color:#C9C9CF}
+.scan-seg button.on{color:#111113}
+.scan-busy{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(0,0,0,.55);font-weight:700;z-index:3}
+.scan-busy .spinner{width:28px;height:28px;border-color:rgba(255,255,255,.25);border-top-color:#fff}
+#scan .btn.acc{background:#F5F5F7;color:#111113}
+.np-scan{width:100%}
+
 /* Phone width */
 @media (max-width:760px){
   #app{padding:calc(12px + var(--safe-top)) calc(16px + var(--safe-right)) calc(110px + var(--safe-bottom)) calc(16px + var(--safe-left))}
@@ -287,6 +318,8 @@ mark{background:#FFE38A;color:inherit;border-radius:4px;padding:0 1px}
   .pages-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
   .opts{grid-template-columns:repeat(2,minmax(0,1fr))}
   .mistake{flex-wrap:wrap;gap:10px 18px}
+  .lbl-wide{display:none}
+  .scan-btns{width:100%;flex-wrap:nowrap}.scan-btns .btn{flex:1;padding:0 10px;font-size:14px}
   .m-acts{width:100%}.m-acts .btn{flex:1}
   .pr-q{font-size:21px}
   /* sheets: full width, tall ones scroll inside the visible screen */
