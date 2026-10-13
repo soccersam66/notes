@@ -3,11 +3,12 @@ import { db, persist, usage } from './db.js';
 import { $, $$, h, toast, sheet, askText, confirmSheet, menu, applyTheme, moveIndicator, I, esc } from './ui.js';
 import { openEditor, closeEditor, editorOpen, itemsToText } from './editor.js';
 import { search, words, highlight } from './search.js';
-import { importFiles, hasBg, addImagePage, importPdfFile } from './pdfimport.js';
+import { importFiles, hasBg, importPdfFile } from './pdfimport.js';
 import { exportBackup, importBackup } from './backup.js';
 import { warmEngine, engineState, onEngineState } from './engine.js';
 import { enablePageDrag } from './pagegrid.js';
-import { exportPage, exportNotebook, exportPages } from './export.js';
+import { exportPage, exportNotebook, shareSheet } from './export.js';
+import { scansToPdf } from './rebuild.js';
 import { openPractice } from './practicesheet.js';
 import { startScan } from './scanner.js';
 import { pullPrecalc, testPull, PULL_EVERY_MS } from './pull.js';
@@ -296,10 +297,9 @@ async function renderClass(id, tab) {
   // scanned pages from the class screen go at the end of the current unit
   $('#scanBtn').onclick = () => startScan({ onSave: async (pages) => {
     const nb = await S.currentNotebook(id);
-    const made = [];
-    for (const p of pages) made.push(await addImagePage(p.blob, nb.id, { w: p.w, h: p.h, name: 'Scan', extra: { scan: 1 } }));
-    go(`#/nb/${nb.id}/${made[0].id}`);
-    exportPages(made, nb.name); // the scan as a PDF to share, save to Files or Drive, or turn in
+    const r = await saveScans(pages, { classId: id, notebookId: nb.id, title: `${nb.name} scan` });
+    go(`#/nb/${nb.id}/${r.made[0].id}`);
+    shareSheet(r.file); // the scan as a PDF to share, save to Files or Drive, or turn in
   } });
   $('#pdfIn').onchange = async (e) => {
     const files = Array.from(e.target.files || []); e.target.value = ''; if (!files.length) return;
@@ -381,6 +381,20 @@ function practiceLine(m) {
   return `. Practiced ${list.length === 1 ? 'once' : list.length + ' times'}, last ${last.right || 0} of ${last.total || 0} right`;
 }
 
+// Scanned pages -> one real PDF (printed words as text, pictures and handwriting cut from the scan),
+// added to the notebook as PDF pages (searchable, Solve reads them without AI). Returns { made, file }.
+async function saveScans(pages, { classId, notebookId, afterId = null, title }) {
+  const r = await scansToPdf(pages, title, (m) => toast(m, 60000));
+  const made = [];
+  const nb = await importPdfFile(r.file, classId, (m) => toast(m, 60000), notebookId, { afterId, onPage: (p) => made.push(p) });
+  if (!nb || !made.length) throw new Error('import');
+  const n = pages.length;
+  toast(!r.keys ? 'Saved as pictures. Add a Gemini key in Settings to turn scans into real text.'
+    : r.pictures.length ? `Saved. Page ${r.pictures.join(', ')} could not be read, so it stayed a picture.`
+    : `Saved ${n} page${n > 1 ? 's' : ''} as real text`, 4500);
+  return { made, file: r.file };
+}
+
 // Page menu in the notebook grid (long-press a page and let go).
 function pageMenu(key, anchor, refresh) {
   const [nbId, pageId] = key.split('/');
@@ -443,11 +457,10 @@ export function newPageSheet(notebookId, afterId, onCreated) {
     el.querySelector('[data-scan]').onclick = () => {
       close();
       startScan({ onSave: async (pages) => {
-        let after = afterId; const made = [];
-        for (const p of pages) { const pg = await addImagePage(p.blob, notebookId, { w: p.w, h: p.h, name: 'Scan', afterId: after, extra: { scan: 1 } }); after = pg.id; made.push(pg); }
-        if (onCreated) onCreated(made[0]); else go(`#/nb/${notebookId}/${made[0].id}`);
         const nb = await S.getNotebook(notebookId);
-        exportPages(made, `${nb ? nb.name : 'Scan'} scan`); // the scan as a PDF to share or turn in
+        const r = await saveScans(pages, { classId: nb.classId, notebookId, afterId, title: `${nb ? nb.name : 'Scan'} scan` });
+        if (onCreated) onCreated(r.made[0]); else go(`#/nb/${notebookId}/${r.made[0].id}`);
+        shareSheet(r.file); // the scan as a PDF to share or turn in
       } });
     };
     el.querySelectorAll('[data-paper]').forEach(b => b.onclick = () => { paper = b.dataset.paper; el.querySelectorAll('[data-paper]').forEach(x => x.classList.toggle('on', x === b)); });

@@ -1,6 +1,7 @@
 // Gemini calls with "hedging": if the first model is slow or busy, a second
 // model starts after a few seconds and the first good answer wins.
 import { getSettings, DEFAULT_MODELS } from './store.js';
+import { LAYOUT_PROMPT } from './docbuild.js';
 
 const API = 'https://generativelanguage.googleapis.com/v1beta/models/';
 let keyIdx = Math.floor(Math.random() * 1000);
@@ -77,6 +78,11 @@ Problem: ${problem}
 The correct answer (already checked by a math engine, do not change it): ${answer}
 Return JSON only: {"steps":[{"k":"what to do in a few words","m":"the math for that step in plain text"}]}. Use ^ for powers and sqrt() for roots. No LaTeX.` }];
   return askGemini(parts, { stagger: 4000, total: 30000 });
+}
+
+// Where the printed lines, pictures and handwriting are on a scanned page (to rebuild it as a real PDF).
+export async function readLayout(imageB64) {
+  return askGemini([{ text: LAYOUT_PROMPT }, { inlineData: { mimeType: 'image/jpeg', data: imageB64 } }], { stagger: 6000, total: 60000 });
 }
 
 // New practice problems like a saved mistake (a little randomness so each round is different).
