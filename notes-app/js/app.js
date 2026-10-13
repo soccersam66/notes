@@ -7,7 +7,7 @@ import { importFiles, hasBg, addImagePage } from './pdfimport.js';
 import { exportBackup, importBackup } from './backup.js';
 import { warmEngine, engineState, onEngineState } from './engine.js';
 import { enablePageDrag } from './pagegrid.js';
-import { exportPage, exportNotebook } from './export.js';
+import { exportPage, exportNotebook, exportPages } from './export.js';
 import { openPractice } from './practicesheet.js';
 import { startScan } from './scanner.js';
 
@@ -271,10 +271,10 @@ async function renderClass(id, tab) {
   // scanned pages from the class screen go into a new "Scans" notebook
   $('#scanBtn').onclick = () => startScan({ onSave: async (pages) => {
     const nb = await S.createNotebook(id, 'Scans, ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-    let first = null;
-    for (const p of pages) { const pg = await addImagePage(p.blob, nb.id, { w: p.w, h: p.h, name: 'Scan', extra: { scan: 1 } }); first = first || pg; }
-    toast(`Saved ${pages.length} scanned page${pages.length > 1 ? 's' : ''}`);
-    go(`#/nb/${nb.id}/${first.id}`);
+    const made = [];
+    for (const p of pages) made.push(await addImagePage(p.blob, nb.id, { w: p.w, h: p.h, name: 'Scan', extra: { scan: 1 } }));
+    go(`#/nb/${nb.id}/${made[0].id}`);
+    exportPages(made, nb.name); // the scan as a PDF to share, save to Files or Drive, or turn in
   } });
   $('#pdfIn').onchange = async (e) => {
     const files = Array.from(e.target.files || []); e.target.value = ''; if (!files.length) return;
@@ -400,10 +400,11 @@ export function newPageSheet(notebookId, afterId, onCreated) {
     el.querySelector('[data-scan]').onclick = () => {
       close();
       startScan({ onSave: async (pages) => {
-        let after = afterId, first = null;
-        for (const p of pages) { const pg = await addImagePage(p.blob, notebookId, { w: p.w, h: p.h, name: 'Scan', afterId: after, extra: { scan: 1 } }); after = pg.id; first = first || pg; }
-        toast(`Saved ${pages.length} scanned page${pages.length > 1 ? 's' : ''}`);
-        if (onCreated) onCreated(first); else go(`#/nb/${notebookId}/${first.id}`);
+        let after = afterId; const made = [];
+        for (const p of pages) { const pg = await addImagePage(p.blob, notebookId, { w: p.w, h: p.h, name: 'Scan', afterId: after, extra: { scan: 1 } }); after = pg.id; made.push(pg); }
+        if (onCreated) onCreated(made[0]); else go(`#/nb/${notebookId}/${made[0].id}`);
+        const nb = await S.getNotebook(notebookId);
+        exportPages(made, `${nb ? nb.name : 'Scan'} scan`); // the scan as a PDF to share or turn in
       } });
     };
     el.querySelectorAll('[data-paper]').forEach(b => b.onclick = () => { paper = b.dataset.paper; el.querySelectorAll('[data-paper]').forEach(x => x.classList.toggle('on', x === b)); });

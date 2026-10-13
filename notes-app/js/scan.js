@@ -390,3 +390,62 @@ export function outputSize(q, photoW, photoH, maxW = 1632, maxH = 2400) {
   if (hh > maxH) { hh = maxH; w = Math.round(maxH * r); }
   return { w, h: hh };
 }
+
+// ---------- auto capture (live camera) ----------
+// A small, lighting-proof fingerprint of the page inside the quad: flattened to 48 x 62,
+// softened, then shifted and scaled to mean 0 and spread 1. Two looks at the same page
+// match closely (sigMatch near 1); a different page does not.
+export const SIG_W = 48, SIG_H = 62;
+export function pageSignature(rgba, w, h, quad) {
+  const big = warp(rgba, w, h, quad, SIG_W * 2, SIG_H * 2);
+  const g = new Float32Array(SIG_W * SIG_H);
+  for (let y = 0; y < SIG_H; y++) for (let x = 0; x < SIG_W; x++) {
+    let s = 0;
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+      const j = ((y * 2 + dy) * SIG_W * 2 + x * 2 + dx) * 4;
+      s += 0.299 * big[j] + 0.587 * big[j + 1] + 0.114 * big[j + 2];
+    }
+    g[y * SIG_W + x] = s / 4;
+  }
+  const b = boxBlur(g, SIG_W, SIG_H, 1);
+  let m = 0; for (const v of b) m += v; m /= b.length;
+  let sd = 0; for (const v of b) sd += (v - m) * (v - m); sd = Math.sqrt(sd / b.length) || 1;
+  for (let i = 0; i < b.length; i++) b[i] = (b[i] - m) / sd;
+  return b;
+}
+// correlation of two fingerprints: 1 = same picture, 0 = unrelated
+export function sigMatch(a, b) {
+  if (!a || !b || a.length !== b.length) return 0;
+  let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+  return s / a.length;
+}
+
+// One step of the auto shutter, called for every camera frame that was checked.
+// det: { found, quad (in 0..1 of the frame), sig }. Returns { capture, hint, progress, same }.
+// A page that holds still for holdMs is taken. After that the shutter waits until the page is
+// turned: two pages of one worksheet look almost the same at camera-preview size, so "turned"
+// means the page left the view for a moment (a hand turning it), jumped, or clearly changed.
+export const AUTO = { still: 0.012, holdMs: 900, same: 0.9, jump: 0.08, goneFrames: 2 };
+export function autoStep(st, det, now) {
+  if (st.armed === undefined) st.armed = true;
+  if (!det.found) {
+    st.since = null; st.lastQuad = null;
+    if (!st.armed && ++st.gone >= AUTO.goneFrames) st.armed = true;
+    return { capture: false, hint: 'Point at a page', progress: 0 };
+  }
+  const dist = (a, b) => Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1])));
+  if (!st.armed && ((st.takenQuad && dist(det.quad, st.takenQuad) > AUTO.jump) || sigMatch(det.sig, st.taken) < AUTO.same)) st.armed = true;
+  const moved = st.lastQuad ? dist(det.quad, st.lastQuad) : 1;
+  st.lastQuad = det.quad;
+  if (!st.armed) return { capture: false, hint: 'Turn to the next page', progress: 0, same: true };
+  if (moved > AUTO.still || st.since === null) { st.since = now; return { capture: false, hint: 'Hold still', progress: 0 }; }
+  const progress = Math.min(1, (now - st.since) / AUTO.holdMs);
+  if (progress < 1) return { capture: false, hint: 'Hold still', progress };
+  taken(st, det);
+  return { capture: true, hint: 'Got it', progress: 1 };
+}
+// The page was taken (by the auto shutter or the button): wait for the next one.
+export function taken(st, det) {
+  st.armed = false; st.gone = 0; st.since = null;
+  st.taken = det.sig; st.takenQuad = det.quad;
+}
