@@ -4,7 +4,7 @@ import { readFileSync } from 'fs';
 import vm from 'vm';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { pullUrl, checkUrl, readAnswer, noteName, findPrecalc, skipList, pruneSeen, nextSince, b64ToBytes } from '../js/pull.js';
+import { pullUrl, checkUrl, readAnswer, noteName, findPrecalc, skipList, pruneSeen, nextSince, b64ToBytes, inPullWindow, autoDue } from '../js/pull.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 let pass = 0, fail = 0;
@@ -106,6 +106,22 @@ eq('old seen ids dropped after 60 days', Object.keys(pruneSeen({ a: NOW - 10 * d
 eq('first pull: since 0 (script uses 14 days)', nextSince(0), 0);
 eq('later pulls look back a week (late shares)', nextSince(NOW), NOW - 7 * day);
 eq('base64 to bytes', Array.from(b64ToBytes(Buffer.from('%PDF').toString('base64'))), [37, 80, 68, 70]);
+
+// the noon window: every 5 minutes from 12:00 to 12:59 (local time); otherwise only when the app opens, every 10
+const at = (h, m) => new Date(2026, 9, 14, h, m);
+eq('11:59 is outside the window', inPullWindow(at(11, 59)), false);
+eq('12:00 is inside', inPullWindow(at(12, 0)), true);
+eq('12:59 is inside', inPullWindow(at(12, 59)), true);
+eq('1:00 pm is outside', inPullWindow(at(13, 0)), false);
+
+eq('12:10, last try 12:04: wait', autoDue(at(12, 4).getTime(), at(12, 8)), false);
+eq('12:10, last try 12:05: check', autoDue(at(12, 5).getTime(), at(12, 10)), true);
+eq('12:00 sharp after a morning check: check', autoDue(at(11, 58).getTime(), at(12, 3)), true);
+eq('in the window, app just opened, checked 2 min ago: wait', autoDue(at(12, 20).getTime(), at(12, 22), true), false);
+eq('2 pm, app open (not just opened): never on a timer', autoDue(at(10, 0).getTime(), at(14, 0)), false);
+eq('2 pm, app just opened, last try 1:45: wait (10 min rule)', autoDue(at(13, 55).getTime(), at(14, 0), true), false);
+eq('2 pm, app just opened, last try 1:40: check', autoDue(at(13, 49).getTime(), at(14, 0), true), true);
+eq('never checked, opened at night: check', autoDue(0, at(21, 0), true), true);
 
 console.log(`${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);

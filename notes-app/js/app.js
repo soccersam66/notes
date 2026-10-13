@@ -11,7 +11,7 @@ import { exportPage, exportNotebook, shareSheet } from './export.js';
 import { scansToPdf } from './rebuild.js';
 import { openPractice } from './practicesheet.js';
 import { startScan } from './scanner.js';
-import { pullPrecalc, testPull, PULL_EVERY_MS } from './pull.js';
+import { pullPrecalc, testPull, autoDue, inPullWindow, findPrecalc } from './pull.js';
 
 const view = $('#view');
 let settings;
@@ -43,15 +43,17 @@ async function boot() {
   }
   // load the math engine in the background so the first Solve is instant
   setTimeout(() => warmEngine(), 1200);
-  // Precalc auto-pull: when the app opens or comes back, at most every 10 minutes
-  setTimeout(() => autoPull(), 2500);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(() => autoPull(), 1500); });
+  // Precalc auto-pull: when the app opens or comes back (at most every 10 minutes), and from
+  // 12:00 to 1:00 pm every 5 minutes while the app is open (a web app cannot run in the background)
+  setTimeout(() => autoPull(true), 2500);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(() => autoPull(true), 1500); });
+  setInterval(() => { if (document.visibilityState === 'visible') { autoPull(false); refreshPullStrip(); } }, 30000);
 }
 
 // ---------- Precalc auto-pull ----------
-async function autoPull() {
+async function autoPull(opening) {
   const st = await S.getPullState();
-  if (!st.url || !st.key || Date.now() - (st.lastTry || 0) < PULL_EVERY_MS) return;
+  if (!st.url || !st.key || !autoDue(st.lastTry, new Date(), opening)) return;
   runPull(false);
 }
 async function runPull(manual) {
@@ -59,11 +61,42 @@ async function runPull(manual) {
   const r = await pullPrecalc({ S, importPdf: (file, classId, nbId) => importPdfFile(file, classId, (m) => toast(m, 60000), nbId), progress: (m) => toast(m, 60000) });
   const n = r.added ? r.added.length : 0;
   const fails = r.failed && r.failed.length ? ` Could not get: ${r.failed.join(', ')}.` : '';
+  // the same error every 5 minutes is shown once (it stays on the Precalc screen's status line)
+  const before = await S.getPullState();
+  await S.savePullState({ lastError: r.ok ? '' : r.error });
+  if (!r.ok && !manual && before.lastError === r.error && !n) { refreshPullStrip(); return r; }
   if (!r.ok) toast((n ? `${n} new Precalc slide${n > 1 ? 's' : ''} added, then: ` : '') + r.error, 6000);
   else if (n) toast(`${n} new Precalc slide${n > 1 ? 's' : ''} added to ${r.notebook ? r.notebook.name : 'Precalc'}.` + fails, 5000);
   else if (manual || fails) toast('No new Precalc slides.' + fails, 3500);
   if (n && !editorOpen()) route(); // show them on the screen you are on
+  else refreshPullStrip();
   return r;
+}
+
+// The Precalc class screen's auto-pull line: when it last checked, and a button to pull now.
+async function pullStripHtml() {
+  const st = await S.getPullState();
+  const t = (x) => new Date(x).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const today = (x) => x && new Date(x).toDateString() === new Date().toDateString();
+  const when = st.lastTry ? (today(st.lastTry) ? 'today ' + t(st.lastTry) : new Date(st.lastTry).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + t(st.lastTry)) : 'not yet';
+  const set = st.url && st.key;
+  const line = !set ? 'Slides auto-pull is not set up yet.'
+    : st.lastError ? `Last try ${when}: ${st.lastError}`
+    : `Checks for new slides every 5 minutes from 12 to 1 while the app is open${inPullWindow() ? ' (now)' : ''}. Last checked ${when}.`;
+  return `<span class="sub grow" style="font-size:13px;min-width:0${st.lastError ? ';color:var(--warn)' : ''}">${esc(line)}</span>
+    <button class="btn sm ${set ? 'acc' : ''} press" id="pullBtn">${set ? 'Pull slides now' : 'Set up'}</button>`;
+}
+async function refreshPullStrip() {
+  const el = document.getElementById('pullStrip'); if (!el) return;
+  el.innerHTML = await pullStripHtml();
+  el.querySelector('#pullBtn').onclick = async (e) => {
+    const b = e.currentTarget; // read it before any await (it is cleared after the tap)
+    const st = await S.getPullState();
+    if (!(st.url && st.key)) { openSettings(); return; }
+    b.disabled = true; b.innerHTML = '<span class="spinner" style="border-top-color:var(--on)"></span>';
+    await runPull(true);
+    refreshPullStrip();
+  };
 }
 
 // ---------- router ----------
@@ -276,9 +309,11 @@ async function renderClass(id, tab) {
       <div><h1 class="title class-title" style="font-size:44px">${esc(c.name)}</h1><span class="sub" style="font-size:15px">${nbs.length} notebook${nbs.length === 1 ? '' : 's'}, ${(n => n + ' page' + (n === 1 ? '' : 's'))(pagesBy.reduce((a, p) => a + p.length, 0))}. Scans and imports go into ${esc(cur.name)}.</span></div>
       <div class="seg" id="seg"><div class="ind"></div><button data-tab="notebooks" class="${tab !== 'mistakes' ? 'on' : ''}">Notebooks</button><button data-tab="mistakes" class="${tab === 'mistakes' ? 'on' : ''}">Mistakes</button></div>
     </div>
+    ${findPrecalc([c]) ? '<div class="card row rise d1" id="pullStrip" style="padding:10px 10px 10px 16px;margin-top:14px;border-radius:20px"></div>' : ''}
     <div id="classBody"></div>
     <input type="file" id="pdfIn" accept="application/pdf,.pdf,image/*" multiple class="hide">`;
   moveIndicator($('#seg'));
+  refreshPullStrip();
   $('#back').onclick = () => go('#/classes');
   $$('#seg button').forEach(b => b.onclick = () => go(`#/class/${id}/${b.dataset.tab}`));
   $('#nlm').onclick = async () => {
@@ -542,7 +577,7 @@ async function setupPullSettings(el) {
   const st = await S.getPullState();
   u.value = st.url || ''; k.value = st.key || '';
   const when = (t) => t ? new Date(t).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'never';
-  const showInfo = (s) => { info.textContent = s.url && s.key ? `Checks when the app opens, at most every 10 minutes. Last pull: ${when(s.lastPulled)}.` : 'Paste the web app URL and the key from your Apps Script. The slides go into your Precalc class\'s current unit.'; };
+  const showInfo = (s) => { info.textContent = s.url && s.key ? `Checks when the app opens, and every 5 minutes from 12 to 1 while it is open. Last pull: ${when(s.lastPulled)}.` : 'Paste the web app URL and the key from your Apps Script. The slides go into your Precalc class\'s current unit.'; };
   showInfo(st);
   const save = async () => showInfo(await S.savePullState({ url: u.value.trim(), key: k.value.trim() }));
   u.addEventListener('change', save); k.addEventListener('change', save);
