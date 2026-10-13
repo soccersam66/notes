@@ -29,7 +29,8 @@ export async function createClass(name, short) {
   const all = await listClasses();
   const c = { id: uid(), name, short: short || name.slice(0, 2).toUpperCase(), order: all.length, notebookLM: '', created: now() };
   await db.put('classes', c);
-  await createNotebook(c.id, 'Class notes');
+  const nb = await createNotebook(c.id, 'Unit 1');
+  c.currentNb = nb.id; await db.put('classes', c);
   return c;
 }
 export async function updateClass(id, patch) { const c = await getClass(id); Object.assign(c, patch); await db.put('classes', c); return c; }
@@ -51,6 +52,62 @@ export async function updateNotebook(id, patch) { const n = await getNotebook(id
 export async function deleteNotebook(id) {
   for (const p of await listPages(id)) await deletePage(p.id);
   await db.del('notebooks', id);
+}
+
+// ---------- units: one notebook per unit, and each class has a current one ----------
+// Scans, imports and photos from the class screen go into the current unit, never a new notebook.
+export async function currentNotebook(classId) {
+  const c = await getClass(classId); if (!c) return null;
+  const nbs = await listNotebooks(classId);
+  let nb = nbs.find(n => n.id === c.currentNb) || pickCurrent(nbs);
+  if (!nb) { nb = await createNotebook(classId, 'Unit 1'); await createPage(nb.id, { paper: (await getSettings()).defaultPaper || 'graph' }); }
+  if (c.currentNb !== nb.id) await updateClass(classId, { currentNb: nb.id });
+  return nb;
+}
+// No current unit stored yet (classes from before units): the highest "Unit N", else the class's
+// first notebook (its main one), not a Scans/Photos/imported notebook made later.
+export function pickCurrent(nbs) {
+  let best = null, max = -1;
+  for (const n of nbs || []) { const m = String(n.name).match(/^\s*unit\s*(\d+)/i); if (m && +m[1] > max) { max = +m[1]; best = n; } }
+  return best || (nbs && nbs[0]) || null;
+}
+export async function setCurrentNotebook(classId, notebookId) { return updateClass(classId, { currentNb: notebookId }); }
+
+// "Unit 4" after Unit 1 to 3 (also counts "Unit 3: Quadratics"); "Unit 1" when there are none yet.
+export function nextUnitName(names) {
+  let max = 0;
+  for (const n of names || []) { const m = String(n).match(/^\s*unit\s*(\d+)/i); if (m) max = Math.max(max, +m[1]); }
+  return 'Unit ' + (max + 1);
+}
+
+// Start the next unit: a new notebook with one page, made current.
+export async function startNextUnit(classId, name) {
+  const nbs = await listNotebooks(classId);
+  const nb = await createNotebook(classId, name || nextUnitName(nbs.map(n => n.name)));
+  await createPage(nb.id, { paper: (await getSettings()).defaultPaper || 'graph' });
+  await setCurrentNotebook(classId, nb.id);
+  return nb;
+}
+
+// Move every page of one notebook to the end of another (in order), then delete the empty one.
+// Mistakes and "continue where you left off" follow their pages.
+export async function mergeNotebook(fromId, toId) {
+  if (fromId === toId) return null;
+  const from = await getNotebook(fromId), to = await getNotebook(toId);
+  if (!from || !to) return null;
+  const moving = await listPages(fromId), target = await listPages(toId);
+  let order = target.length ? target[target.length - 1].order : 0;
+  moving.forEach(p => { p.notebookId = toId; p.order = ++order; p.updated = now(); });
+  await db.putMany('pages', moving);
+  const ms = (await db.all('mistakes')).filter(m => m.notebookId === fromId);
+  if (ms.length) { ms.forEach(m => { m.notebookId = toId; m.classId = to.classId; }); await db.putMany('mistakes', ms); }
+  const last = await lastPage();
+  if (last && last.notebookId === fromId) await setLastPage({ ...last, notebookId: toId });
+  await db.del('notebooks', fromId);
+  const c = await getClass(from.classId);
+  if (c && c.currentNb === fromId) await updateClass(c.id, { currentNb: to.classId === c.id ? toId : null });
+  await updateNotebook(toId, {});
+  return { moved: moving.length };
 }
 
 // ---------- pages ----------

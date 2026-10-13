@@ -233,7 +233,10 @@ function addClassSheet() {
 async function renderClass(id, tab) {
   const c = await S.getClass(id);
   if (!c) return go('#/classes');
-  const nbs = await S.listNotebooks(id);
+  const cur = await S.currentNotebook(id); // scans, imports and photos from this screen go here
+  // the current unit first, then the others newest first
+  const all = await S.listNotebooks(id);
+  const nbs = [all.find(n => n.id === cur.id)].concat(all.filter(n => n.id !== cur.id).reverse()).filter(Boolean);
   const pagesBy = await Promise.all(nbs.map(nb => S.listPages(nb.id)));
   const mistakes = tab === 'mistakes' ? await S.listMistakes(id) : [];
   view.innerHTML = `
@@ -247,7 +250,7 @@ async function renderClass(id, tab) {
       </div>
     </div>
     <div class="rise d1" style="display:flex;align-items:flex-end;justify-content:space-between;margin:16px 0 4px;gap:12px;flex-wrap:wrap">
-      <div><h1 class="title class-title" style="font-size:44px">${esc(c.name)}</h1><span class="sub" style="font-size:15px">${nbs.length} notebook${nbs.length === 1 ? '' : 's'}, ${(n => n + ' page' + (n === 1 ? '' : 's'))(pagesBy.reduce((a, p) => a + p.length, 0))}</span></div>
+      <div><h1 class="title class-title" style="font-size:44px">${esc(c.name)}</h1><span class="sub" style="font-size:15px">${nbs.length} notebook${nbs.length === 1 ? '' : 's'}, ${(n => n + ' page' + (n === 1 ? '' : 's'))(pagesBy.reduce((a, p) => a + p.length, 0))}. Scans and imports go into ${esc(cur.name)}.</span></div>
       <div class="seg" id="seg"><div class="ind"></div><button data-tab="notebooks" class="${tab !== 'mistakes' ? 'on' : ''}">Notebooks</button><button data-tab="mistakes" class="${tab === 'mistakes' ? 'on' : ''}">Mistakes</button></div>
     </div>
     <div id="classBody"></div>
@@ -268,9 +271,9 @@ async function renderClass(id, tab) {
     { label: 'Delete class', icon: I.trash(), danger: true, run: async () => { if (await confirmSheet({ title: `Delete ${c.name}?`, body: 'Every notebook and page in it will be deleted. Make a backup first if unsure.' })) { await S.deleteClass(id); go('#/classes'); } } }
   ]);
   $('#importPdf').onclick = () => $('#pdfIn').click();
-  // scanned pages from the class screen go into a new "Scans" notebook
+  // scanned pages from the class screen go at the end of the current unit
   $('#scanBtn').onclick = () => startScan({ onSave: async (pages) => {
-    const nb = await S.createNotebook(id, 'Scans, ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    const nb = await S.currentNotebook(id);
     const made = [];
     for (const p of pages) made.push(await addImagePage(p.blob, nb.id, { w: p.w, h: p.h, name: 'Scan', extra: { scan: 1 } }));
     go(`#/nb/${nb.id}/${made[0].id}`);
@@ -279,10 +282,13 @@ async function renderClass(id, tab) {
   $('#pdfIn').onchange = async (e) => {
     const files = Array.from(e.target.files || []); e.target.value = ''; if (!files.length) return;
     toast(files.length > 1 ? `Importing ${files.length} files...` : 'Importing...', 60000);
-    const r = await importFiles(files, { classId: id, progress: (msg) => toast(msg, 60000) });
+    // PDFs and photos go at the end of the current unit; open at the first new page
+    const nb = await S.currentNotebook(id), before = (await S.listPages(nb.id)).length;
+    const r = await importFiles(files, { classId: id, notebookId: nb.id, progress: (msg) => toast(msg, 60000) });
     const bad = r.skipped.length ? ` Could not read: ${r.skipped.join(', ')}` : '';
-    if (r.notebooks.length === 1) { toast('Imported.' + bad, 3000); go(`#/nb/${r.notebooks[0]}`); }
-    else { toast(`Imported into ${r.notebooks.length} notebooks.` + bad, 3500); renderClass(id, tab); }
+    const first = (await S.listPages(nb.id))[before];
+    toast((first ? `Added to ${nb.name}.` : 'Nothing was imported.') + bad, 3500);
+    if (first) go(`#/nb/${nb.id}/${first.id}`); else renderClass(id, tab);
   };
   const body = $('#classBody');
   if (tab === 'mistakes') {
@@ -297,14 +303,14 @@ async function renderClass(id, tab) {
   body.innerHTML = nbs.map((nb, i) => `
     <div class="card nb rise d${Math.min(5, i + 2)}">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-        <div class="row grow"><h2 class="h2 ellip">${esc(nb.name)}</h2><span class="chip">${pagesBy[i].length} page${pagesBy[i].length === 1 ? '' : 's'}</span></div>
+        <div class="row grow"><h2 class="h2 ellip">${esc(nb.name)}</h2>${nb.id === cur.id ? '<span class="chip acc">Current</span>' : ''}<span class="chip">${pagesBy[i].length} page${pagesBy[i].length === 1 ? '' : 's'}</span></div>
         <button class="icon soft press" data-nbmore="${nb.id}" aria-label="Notebook options">${I.more()}</button>
       </div>
       <div class="pages-grid" data-nb="${nb.id}">
         ${pagesBy[i].map((p, j) => `<button class="pg lift" data-page="${nb.id}/${p.id}"><div class="thumb ${p.h < p.w ? 'wide' : ''}">${p.thumb ? `<img src="${p.thumb}" alt="" loading="lazy">` : (!hasBg(p) ? paperSwatch(p.paper) : '')}<span class="num">${j + 1}</span></div></button>`).join('')}
         <button class="pg add press" data-newpage="${nb.id}"><div class="thumb"><span style="display:flex;flex-direction:column;align-items:center;gap:6px;font-size:14px;font-weight:700">${I.plus(26)}New page</span></div></button>
       </div>
-    </div>`).join('') + `<div class="rise d5" style="margin-top:16px"><button class="btn card press" id="newNb">${I.plus(18)} New notebook</button></div>`;
+    </div>`).join('') + `<div class="rise d5 row" style="margin-top:16px;flex-wrap:wrap"><button class="btn acc press" id="nextUnit">${I.plus(18)} Start ${esc(S.nextUnitName(nbs.map(n => n.name)))}</button><button class="btn card press" id="newNb">${I.plus(18)} Other notebook</button></div>`;
   body.querySelectorAll('.pages-grid').forEach(grid => enablePageDrag(grid, {
     onOpen: (key) => go('#/nb/' + key),
     onMenu: (key, tile) => pageMenu(key, tile, () => renderClass(id, tab)),
@@ -314,8 +320,16 @@ async function renderClass(id, tab) {
     }
   }));
   body.querySelectorAll('[data-newpage]').forEach(b => b.onclick = () => newPageSheet(b.dataset.newpage, null));
+  // the next unit becomes current, so new scans and imports go there from now on
+  $('#nextUnit').onclick = async () => {
+    const n = await askText({ title: 'Start the next unit', label: 'Name (add the topic if you like, e.g. Unit 4: Quadratics)', value: S.nextUnitName(nbs.map(x => x.name)), ok: 'Start' });
+    if (!n) return;
+    await S.startNextUnit(id, n);
+    toast(`${n} started. Scans and imports go here now.`, 3000);
+    renderClass(id, tab);
+  };
   $('#newNb').onclick = async () => {
-    const n = await askText({ title: 'New notebook', label: 'Name', placeholder: 'Unit 3, Homework, Quiz review...', ok: 'Create' });
+    const n = await askText({ title: 'Other notebook', label: 'Name (it does not become the current unit)', placeholder: 'Homework, Quiz review...', ok: 'Create' });
     if (!n) return;
     const nb = await S.createNotebook(id, n);
     await S.createPage(nb.id, { paper: settings.defaultPaper });
@@ -324,7 +338,14 @@ async function renderClass(id, tab) {
   body.querySelectorAll('[data-nbmore]').forEach(b => b.onclick = (e) => {
     const nb = nbs.find(x => x.id === b.dataset.nbmore);
     menu(e.currentTarget, [
+      ...(nb.id === cur.id ? [] : [{ label: 'Make current unit', icon: I.check(16, 2.6), run: async () => { await S.setCurrentNotebook(id, nb.id); toast(`Scans and imports go into ${nb.name} now`); renderClass(id, tab); } }]),
       { label: 'Rename', icon: I.edit(), run: async () => { const n = await askText({ title: 'Rename notebook', value: nb.name }); if (n) { await S.updateNotebook(nb.id, { name: n }); renderClass(id, tab); } } },
+      { label: 'Merge into...', icon: I.move(18), run: async () => {
+        const to = await pickNotebook(nb.id, 'Merge ' + nb.name + ' into'); if (!to) return;
+        const n = (await S.listPages(nb.id)).length;
+        if (!(await confirmSheet({ title: `Merge into ${to.name}?`, body: `The ${n} page${n === 1 ? '' : 's'} of ${nb.name} go to the end of ${to.name}, with their writing. ${nb.name} is then removed.`, ok: 'Merge', danger: false }))) return;
+        await S.mergeNotebook(nb.id, to.id); toast(`Merged into ${to.name}`); renderClass(id, tab);
+      } },
       { label: 'Export as PDF', icon: I.file(), run: () => { toast('Making PDF...', 60000); exportNotebook(nb.id); } },
       { label: 'Delete notebook', icon: I.trash(), danger: true, run: async () => { if (await confirmSheet({ title: `Delete ${nb.name}?`, body: 'All its pages and writing will be deleted.' })) { await S.deleteNotebook(nb.id); renderClass(id, tab); } } }
     ]);
@@ -362,12 +383,12 @@ function pageMenu(key, anchor, refresh) {
 }
 
 // Pick a notebook (any class) to move a page into. Resolves with the notebook or null.
-export async function pickNotebook(excludeId) {
+export async function pickNotebook(excludeId, title = 'Move to notebook') {
   const classes = await S.listClasses();
   const groups = (await Promise.all(classes.map(async c => ({ c, nbs: (await S.listNotebooks(c.id)).filter(n => n.id !== excludeId) })))).filter(g => g.nbs.length);
   return new Promise((resolve) => {
     let picked = null;
-    const close = sheet(`<h3>Move to notebook</h3>
+    const close = sheet(`<h3>${esc(title)}</h3>
       ${groups.length ? groups.map(g => `<div class="field"><label>${esc(g.c.name)}</label>
         ${g.nbs.map(n => `<button class="btn press pick-nb" data-nb="${n.id}">${I.book(18)} <span class="ellip">${esc(n.name)}</span></button>`).join('')}</div>`).join('')
         : '<p class="sub" style="margin:0">There is no other notebook yet. Make one in a class first.</p>'}
