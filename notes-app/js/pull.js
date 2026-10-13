@@ -3,7 +3,18 @@
 // current unit. The web app URL and key live ONLY in this iPad's browser storage (meta 'pull'),
 // never in code, never in a backup file.
 
-export const PULL_EVERY_MS = 10 * 60 * 1000; // automatic pull at most every 10 minutes
+export const PULL_EVERY_MS = 10 * 60 * 1000; // automatic pull when the app opens, at most every 10 minutes
+export const WINDOW_EVERY_MS = 5 * 60 * 1000; // from 12:00 to 1:00 pm: every 5 minutes while the app is open
+export const WINDOW = { from: 12, to: 13 };   // hours, iPad local time (when the teacher posts the notes)
+
+// Is it the noon window (12:00 to 12:59, local time)?
+export function inPullWindow(d = new Date()) { const h = d.getHours(); return h >= WINDOW.from && h < WINDOW.to; }
+// Should an automatic check run now? opening: the app was just opened or came back.
+export function autoDue(lastTry, now = new Date(), opening = false) {
+  const since = now.getTime() - (lastTry || 0);
+  if (inPullWindow(now)) return since >= WINDOW_EVERY_MS;
+  return opening && since >= PULL_EVERY_MS;
+}
 const OVERLAP_MS = 7 * 86400000;             // look back a week: a file can be shared days after it was edited
 const KEEP_SEEN_MS = 60 * 86400000;
 
